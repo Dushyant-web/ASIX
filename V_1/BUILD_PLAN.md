@@ -95,7 +95,7 @@ P9  Deploy · document · rehearse
 ## Phase 0 — De-risk the Gamble
 
 > **Time-box: one session. Do this before writing a single line of AXIS.**
-> The entire architecture rests on one assumption: that `@x402-avm/*` can build and submit a multi-payee atomic group on Algorand testnet from Node. If that assumption is wrong, you need to know **tonight**, not on submission day.
+> The entire architecture rests on one assumption: that the official x402 SDKs (`@x402/avm`, `@x402/fetch`) can build and submit a **multi-payee** atomic group on Algorand testnet from Node. If that assumption is wrong, you need to know **tonight**, not on submission day.
 
 ### Work
 
@@ -115,7 +115,7 @@ P9  Deploy · document · rehearse
    - signs and submits
    - waits for confirmation and prints the group id, both txids, and the confirmed round
 5. **Verify `wrangler dev` can import the chain SDK.** A trivial Worker that imports `@algorandfoundation/algokit-utils` and returns its version. This confirms the providers' runtime is viable.
-6. **Verify package names against the track Discord.** The brief says `@x402/*`; the AVM implementation ships as `@x402-avm/*`. Confirm the exact names and versions before pinning anything.
+6. **Resolve the package names — this is a real open question.** The track brief names four packages: client `@x402/fetch` + `@x402/avm`, server `@x402/hono` + `@x402/core/server`. Some GoPlausible AVM builds have published under the hyphenated `@x402-avm/*` scope instead. **Try the brief's names first** (`npm view @x402/avm`, `npm view @x402/hono`); if they 404, fall back to `@x402-avm/*` and confirm on the track Discord. Write whichever is real into `docs/PROTOCOL.md` with exact versions, and pin them in `package.json`. Nothing downstream can start until this is settled.
 
 ### Definition of Done
 
@@ -123,7 +123,7 @@ P9  Deploy · document · rehearse
 - [ ] Both txids are clickable and confirmed on AlgoExplorer testnet
 - [ ] `simulateTransactions` output is decoded and printed, and deliberately breaking one leg (wrong amount) makes simulation fail **before** submission
 - [ ] `wrangler dev` serves a Worker that imported the chain SDK without a bundling error
-- [ ] Exact `@x402-avm/*` package names and versions are written down in `docs/PROTOCOL.md`
+- [ ] The **real** x402 package names and exact versions are confirmed, written into `docs/PROTOCOL.md`, and pinned in `package.json`
 
 > **If the spike does not pass, stop and re-plan.** Do not proceed and hope. Everything downstream assumes this works.
 
@@ -385,7 +385,7 @@ Turns "it works on my machine" into "it works in front of judges."
 
 - Deploy all four providers to Workers; deploy the router to Railway; deploy the console to Vercel
 - Set every production env var and Worker secret
-- **`docs/PROTOCOL.md`** — wire-level spec: every phase, every message shape, every error code, exact `@x402-avm` package versions
+- **`docs/PROTOCOL.md`** — wire-level spec: every phase, every message shape, every error code, exact x402 package names + versions
 - **`docs/DEPLOYMENT.md`** — the runbook in §15, verbatim and tested from a clean machine
 - **`docs/DEMO.md`** — the script in §16
 - Update `README.md`: live URLs, team section, judging map
@@ -564,7 +564,7 @@ Click **"Should I merge this PR?"** and narrate the live console:
 
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
-| `@x402-avm/*` API differs from expectations | **Fatal** | Medium | **Phase 0 exists entirely for this.** Verify names/versions on the track Discord before pinning. |
+| x402 package names/API differ from the brief (`@x402/*` vs `@x402-avm/*`) | **Fatal** | **High** | **Phase 0 exists entirely for this.** Resolve via `npm view` + track Discord before writing any code against them. |
 | Payee not opted into USDC ASA | High | **High** | `scripts/optin-usdc.ts` + a pre-flight check that fails with the offending address named |
 | Testnet congestion or dispenser down during demo | High | Low | Pre-generated fallback receipt; funded reserve account |
 | LLM latency blows the demo timing | Medium | Medium | `effort: "low"`, parallel batch execution, p50 target under 4 s per provider |

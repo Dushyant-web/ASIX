@@ -31,6 +31,7 @@ Sub-track: Entry Management Framework — Atomic Agent Aggregators & Multi-Step 
 17. [Environment Configuration](#17-environment-configuration)
 18. [Mainnet Readiness](#18-mainnet-readiness)
 19. [Judging Criteria Mapping](#19-judging-criteria-mapping)
+20. [Differentiation Strategy — How We Get to #1](#20-differentiation-strategy--how-we-get-to-1)
 
 ---
 
@@ -109,7 +110,7 @@ Three consequences fall out with no extra engineering:
 
 ### Hard constraints that decided things before taste did
 
-1. **The x402 AVM implementation ships as JS/TS only** (`@x402-avm/*`, GoPlausible's reference implementation, merged upstream into Coinbase's x402 repo). Any other language means reimplementing the 402 challenge → sign → retry → settle protocol from scratch. **TypeScript is not a preference, it is a constraint.**
+1. **The official x402 SDKs are JS/TS only.** The track brief names them explicitly: **client** `@x402/fetch` + `@x402/avm`, **server** `@x402/hono` + `@x402/core/server`. Any other language means reimplementing the 402 challenge → sign → retry → settle protocol from scratch. **TypeScript is not a preference, it is a constraint.**
 2. **The execute phase is long I/O** — fan-out to four providers, each backed by an LLM call, 5–20 s each. Anything with a hard wall-clock execution cap is disqualified for the router.
 3. **Judges need live public URLs** — always-on, no cold start on the demo click.
 4. **Receipts must survive a restart.** A judge clicking `/v1/receipt/:id` an hour later must get a receipt.
@@ -118,15 +119,19 @@ Three consequences fall out with no extra engineering:
 
 | Layer | Choice | Why this and not the alternative |
 |---|---|---|
-| **Language** | TypeScript 5.x, ESM, strict mode | Forced by `@x402-avm/*`. Strict + ESM because the SDK is ESM-only. |
+| **Language** | TypeScript 5.x, ESM, strict mode | Forced by the official x402 SDKs. Strict + ESM because they are ESM-only. |
 | **Runtime** | Node 22 LTS | Bun installs and tests faster, but the deploy targets are `workerd` and Node — a dev/prod runtime mismatch is a debugging tax you cannot afford at 3am. Speed comes from pnpm, not from swapping runtimes. |
 | **Package manager** | pnpm 9 | Content-addressed store, fastest cold install, strict peer resolution catches version drift between the four provider packages. |
 | **Monorepo** | Turborepo | `pnpm dev` runs everything with one command; task graph caching makes rebuilds instant. ~5 minutes of setup, pays back the first afternoon. |
-| **HTTP framework** | **Hono** (providers + router) | The only framework that runs *identically* on Cloudflare Workers and Node. Same middleware, same types, same code shape across both tiers. Express doesn't run on Workers; Fastify doesn't either. Hono also has first-class Zod/OpenAPI integration. |
+| **HTTP framework** | **Hono** (providers + router) | **The official x402 server SDK is `@x402/hono`.** Choosing anything else means writing the 402 challenge middleware by hand. On top of that, Hono is the only framework that runs *identically* on Cloudflare Workers and Node — same middleware, same types, same code shape across both tiers. Express and Fastify don't run on Workers. Hono also has first-class Zod/OpenAPI integration. **This choice is made for us; do not revisit it.** |
 | **Validation & types** | **Zod v4** + `@hono/zod-openapi` | One schema per object in `packages/shared` is the single source of truth for router validation, provider parsing, DB inserts, and console types. OpenAPI docs generate from it for free — which is literally the Documentation judging criterion. |
 | **Database** | **Neon Postgres** + **Drizzle ORM** | *One* store, not two. The textbook answer is Redis for quotes/counters + Postgres for receipts. At demo scale the velocity window is `SELECT sum(amount) WHERE ts > now() - interval '1 hour'` — free. Two stores = two failure surfaces = two things that can break mid-demo. Neon is serverless, free tier, ~0 ops. |
 | **ORM** | Drizzle, **not Prisma** | No codegen step in the build, no heavy client, TS-native schema, and the emitted SQL is inspectable — which matters when you are debugging a receipt aggregation live. Prisma's generate step alone would slow every CI run. |
-| **Chain SDK** | `@x402-avm/*` + `@algorandfoundation/algokit-utils` | As of `@x402-avm` v2.6+, `algosdk` is **no longer a direct dependency** — the packages use algokit-utils internally. Do not add `algosdk` unless a spike proves you need it. **Verify exact package names against the track Discord before pinning versions.** |
+| **x402 — server** | `@x402/hono` + `@x402/core/server` | Official server SDKs per the track brief. Issue the HTTP 402 challenge. Used by all four providers. |
+| **x402 — client** | `@x402/fetch` + `@x402/avm` | Official client SDKs per the track brief. Sign and auto-retry. Used by the router when it acts as the paying agent. |
+| **Facilitator** | `https://facilitator.goplausible.xyz` | The provided facilitator service. Verifies and settles payment, co-signs as `feePayer`. |
+| **Settlement asset** | USDC ASA on Algorand — testnet for MVP, **mainnet encouraged** | Per the brief. Mainnet is a four-variable config change (§18) — worth doing if time allows, it is explicitly encouraged. |
+| **Chain utils** | `@algorandfoundation/algokit-utils` | For raw group composition and `simulateTransactions` where the x402 SDK doesn't expose it. `algosdk` is **not** a direct dependency in recent versions — do not add it unless the Phase 0 spike proves you need it. |
 | **LLM** | `@anthropic-ai/sdk`, model `claude-opus-5` | All four provider endpoints are generate/summarize/classify tasks. See §10 for exact parameters. |
 | **Frontend** | **Next.js 15** (App Router) + React 19 | The README specifies it, it deploys to Vercel with zero config, and route handlers give a clean place to proxy the router later if the API surface needs hiding. Client components do the work; no RSC data fetching needed. |
 | **Frontend data** | TanStack Query + native `EventSource` (SSE) | Query for quote/receipt fetches, SSE for the live run stream. SSE over WebSocket: one-way, no handshake, survives proxies, ~10 lines of server code. |
@@ -145,7 +150,7 @@ Three consequences fall out with no extra engineering:
 
 > **Explicitly rejected: the router on Vercel serverless functions.** Hobby-tier functions cap execution at ~10 s. The execute phase will exceed that on the first run and fail in front of a judge.
 
-> **Explicitly rejected: the router on Cloudflare Workers.** It would probably work — Workers bills CPU time, not wall time, and the fan-out is nearly all I/O wait. But it puts mnemonic signing, `@x402-avm` compatibility, and persistent SSE all on `workerd` at once. Any single incompatibility costs a night. The providers get Workers because they are trivial and stateless; the router gets Node because it is where the risk lives.
+> **Explicitly rejected: the router on Cloudflare Workers.** It would probably work — Workers bills CPU time, not wall time, and the fan-out is nearly all I/O wait. But it puts mnemonic signing, x402 client-SDK compatibility, and persistent SSE all on `workerd` at once. Any single incompatibility costs a night. The providers get Workers because they are trivial and stateless; the router gets Node because it is where the risk lives.
 
 ---
 
@@ -1035,6 +1040,63 @@ Config is validated at boot by a Zod schema. **A missing or malformed variable c
 |---|---|---|
 | **30%** | x402 Protocol Flow | Full `402 → sign → retry → settle → receipt` executed **N times per workflow**, plus a distinct quote phase that reads challenges without paying. All 8 brief steps are individually visible as SSE events in the console. |
 | **25%** | Real Pay-Per-Call Model | Paying user is the CI pipeline. Per-workflow-run pricing, no subscription, no seats, no signup. 200 PRs/month = $26; a quiet month = $0. AXIS takes a routing fee per run. |
-| **20%** | Technical Execution & Algorand | Native atomic transaction groups across **multiple distinct payees** — an Algorand-specific capability, not a portable pattern. USDC ASA settlement, `feePayer` fee abstraction, `simulateTransactions` pre-flight, every txid surfaced with an explorer link. |
+| **20%** | Technical Execution & Algorand | Clean `@x402/*` integration (official SDKs, no hand-rolled protocol). USDC ASA settlement on Algorand. **Every transaction ID is in the response** — explicitly required by the brief, and we return N of them plus the group id. Native atomic groups across **multiple distinct payees**, `feePayer` fee abstraction, `simulateTransactions` pre-flight. |
 | **15%** | Innovation & Utility | Multi-endpoint atomicity, unified receipts, pre-signature spend policy, **and compensation for paid-but-undelivered work** — the missing primitives between "x402 works" and "agents can actually use it." |
 | **10%** | Documentation & Deployment | Live testnet endpoints, generated OpenAPI, `README.md`, `ARCHITECTURE.md`, `BUILD_PLAN.md`, `PROTOCOL.md`, `DEPLOYMENT.md`, mainnet-ready config behind a single constant. |
+
+---
+
+## 20. Differentiation Strategy — How We Get to #1
+
+The goal is not "a working submission." The goal is **the top submission**. That requires knowing what everyone else will build and deliberately not building it.
+
+### What the field will look like
+
+The sub-track brief lists four bullets. The first one is:
+
+> *Multi-Step Research Agent (Coordinate multiple paid services to generate comprehensive research reports)*
+
+**Most teams will build exactly that**, because it is listed first and it is the obvious read. Expect a large cluster of "AI research agent that queries 3 paid search/summarize endpoints and writes a report." Those submissions will be near-identical to each other, and a judge scoring the tenth one will be numb to it.
+
+The other three bullets are the *infrastructure* bullets:
+
+> - Atomic multi-endpoint micropayment routing and settlement
+> - Unified transaction-linked receipt aggregation
+> - Scalable pay-per-workflow execution for complex multi-agent pipelines
+
+**AXIS builds those three.** We are not a research agent that happens to pay for things — we are the settlement layer that any multi-step agent plugs into. That framing alone separates us from the cluster.
+
+### The five things that make us hard to beat
+
+| # | Differentiator | Why almost nobody else will have it |
+|---|---|---|
+| 1 | **Compensation legs for paid-but-undelivered work** | Everyone stops at "the atomic group committed." Payment atomicity is not execution atomicity. A provider can take the money and then 500 — we reverse that leg on chain, mark the run `PARTIAL`, and put the refund txid on the receipt. This is the single hardest thing in the build and the single most memorable thing in the demo. |
+| 2 | **A distinct quote phase that reads prices without paying** | The obvious implementation pays and then discovers cost. We fan out unpaid probes, read each provider's own `402` challenge, and return a signed, TTL-bounded quote. Zero payments during discovery. It also proves we understood the protocol rather than just calling a helper. |
+| 3 | **`simulateTransactions` as a hard pre-submission gate** | An Algorand-native capability most teams won't touch. It makes every group failure free, and it is a 15-second demo moment: break a leg on purpose, watch it fail *before* money moves. |
+| 4 | **The spend guard folded in as a mandatory gate, not a bolted-on endpoint** | "Agent spend guard" is one of the 20 example use cases — most teams that build it will ship it as *another paid endpoint*. We make it an architectural layer that runs before every signature. Same feature, categorically better framing: we composed two sub-tracks instead of picking one. |
+| 5 | **A paying customer that is not a human** | The CI pipeline pays. 200 PRs/month = $26; a quiet month = $0. No seats, no signup, no API key provisioning. That is a *real* pay-per-call model, and it directly answers the 25% criterion better than "a user buys research credits." |
+
+### Use-case choice, and why it's deliberate
+
+The brief's 20 examples include **commit roaster** and **bug summarizer** — we use both, plus a diff explainer and a guardrail checker.
+
+This is intentional on three levels:
+
+1. **They are from the official list**, so a judge recognises them immediately — no time wasted explaining what the endpoints do.
+2. **They compose into one coherent question** — *"Should I merge this PR?"* — instead of four unrelated services glued together. The DAG is real: `bugsum` genuinely consumes `diff`'s output.
+3. **They are cheap and fast**, so the demo completes in under 20 seconds live.
+
+We are not doing a research agent. Everyone is doing a research agent.
+
+### The one-sentence pitch
+
+> **"Everyone else built an agent that pays. We built the thing that lets any agent pay for ten services at once, atomically, with one signature and one receipt — and get its money back when a provider takes payment and fails to deliver."**
+
+### Ordering: base first, features after
+
+**Nothing in this section changes the build order.** The differentiators above are all *inside* Phases 4–6 of `BUILD_PLAN.md` — they are the core, not additions. Extra features (trust scoring from live indexer signals, Bazaar discovery, cross-chain routing, delegated allowances) come **only after Phase 5 is green**, per §14. A half-built differentiator scores worse than a missing one.
+
+### Open items
+
+- **Team GitHub usernames** — pending from Dushyant, to be collected and added as repo collaborators. Branches `sarthak`, `saquib`, `aarjav`, `main` already exist.
+- **Mainnet deployment** — the brief says mainnet is *encouraged*. It is a four-variable config change (§18). If Phase 9 finishes with time to spare, do it — it is free differentiation on the 10% Documentation & Deployment criterion.
