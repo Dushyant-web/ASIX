@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.mnemonic
+*.key
+accounts.json
+secrets/
+
+# build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# tooling caches
+.turbo/
+.wrangler/
+.vercel/
+coverage/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
