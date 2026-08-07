@@ -70,7 +70,7 @@ console.log(`
    Dispense ALGO.
 
 2. Get testnet USDC for the SAME address:
-   https://lora.algokit.io/testnet/fund  →  'Fund with USDC' section
+   https://faucet.circle.com  →  USDC → network: Algorand Testnet
 
 3. Then run:
      pnpm accounts:check     # confirms balances landed

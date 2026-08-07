@@ -159,7 +159,7 @@ The console shows, live: four 402 challenges → one group ID → four txids on 
 ### Prerequisites
 
 - Node 20+, pnpm 9+
-- An Algorand Testnet account funded with test USDC ([dispenser](https://lora.algokit.io/testnet/fund))
+- An Algorand Testnet account funded with ALGO ([Lora](https://lora.algokit.io/testnet/fund)) and test USDC ([Circle faucet](https://faucet.circle.com))
 - Test USDC ASA opt-in on every provider address
 
 ### Install

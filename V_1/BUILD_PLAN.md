@@ -459,7 +459,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 ### Prerequisites
 
 - Node 20+ (22 LTS recommended), pnpm 9+
-- Algorand testnet account funded with test USDC ([dispenser](https://lora.algokit.io/testnet/fund))
+- Algorand testnet account funded with ALGO ([Lora](https://lora.algokit.io/testnet/fund)) and test USDC ([Circle faucet](https://faucet.circle.com))
 - Test USDC ASA opt-in on **every** provider address
 - Anthropic API key
 - Accounts: Cloudflare, Railway (or Fly), Vercel, Neon
