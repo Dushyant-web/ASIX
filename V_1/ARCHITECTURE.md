@@ -124,7 +124,7 @@ Three consequences fall out with no extra engineering:
 | **Package manager** | pnpm 9 | Content-addressed store, fastest cold install, strict peer resolution catches version drift between the four provider packages. |
 | **Monorepo** | Turborepo | `pnpm dev` runs everything with one command; task graph caching makes rebuilds instant. ~5 minutes of setup, pays back the first afternoon. |
 | **HTTP framework** | **Hono** (providers + router) | **The official x402 server SDK is `@x402/hono`.** Choosing anything else means writing the 402 challenge middleware by hand. On top of that, Hono is the only framework that runs *identically* on Cloudflare Workers and Node — same middleware, same types, same code shape across both tiers. Express and Fastify don't run on Workers. Hono also has first-class Zod/OpenAPI integration. **This choice is made for us; do not revisit it.** |
-| **Validation & types** | **Zod v4** + `@hono/zod-openapi` | One schema per object in `packages/shared` is the single source of truth for router validation, provider parsing, DB inserts, and console types. OpenAPI docs generate from it for free — which is literally the Documentation judging criterion. |
+| **Validation & types** | **Zod v3** (`^3.24.2`) + `@hono/zod-openapi` | **Pinned to v3 because `@x402/core` builds its schemas on `zod ^3.24.2`** — installing v4 alongside yields two zod copies and incompatible inferred types at the SDK boundary (verified, see `docs/PROTOCOL.md` §1). One schema per object in `packages/shared` is the single source of truth for router validation, provider parsing, DB inserts, and console types. OpenAPI docs generate from it for free — which is literally the Documentation judging criterion. |
 | **Database** | **Neon Postgres** + **Drizzle ORM** | *One* store, not two. The textbook answer is Redis for quotes/counters + Postgres for receipts. At demo scale the velocity window is `SELECT sum(amount) WHERE ts > now() - interval '1 hour'` — free. Two stores = two failure surfaces = two things that can break mid-demo. Neon is serverless, free tier, ~0 ops. |
 | **ORM** | Drizzle, **not Prisma** | No codegen step in the build, no heavy client, TS-native schema, and the emitted SQL is inspectable — which matters when you are debugging a receipt aggregation live. Prisma's generate step alone would slow every CI run. |
 | **x402 — server** | `@x402/hono` + `@x402/core/server` | Official server SDKs per the track brief. Issue the HTTP 402 challenge. Used by all four providers. |
@@ -254,7 +254,7 @@ Fail any check → the workflow is **rejected before a group is even built**. Co
 10. Group submitted                       → confirmed in ~3s, or rejected entirely
 ```
 
-Group size is asserted `<= 16` before composition. Simulation failure aborts before submission. Chain rejection is all-or-nothing by construction.
+Group size is asserted `<= 15` provider legs before composition (16 total minus the fee-payer slot). Simulation failure aborts before submission. Chain rejection is all-or-nothing by construction.
 
 ### Phase 4 — Execute, resolve, receipt
 
@@ -876,7 +876,7 @@ Every one of these is implemented. None is a stub.
 | 6 | Quote expired | Execute | TTL enforced; `QUOTE_EXPIRED`; re-quote required | **$0** |
 | 7 | Quote replayed | Execute | `status != OPEN` → `QUOTE_CONSUMED` | **$0** |
 | 8 | Quote tampered | Execute | Router signature verify fails → `SIGNATURE_INVALID` | **$0** |
-| 9 | Group > 16 txns | Compose | `GROUP_TOO_LARGE`; asserted before build | **$0** |
+| 9 | Group > 15 provider legs (16 incl. fee payer) | Compose | `GROUP_TOO_LARGE`; asserted before build | **$0** |
 | 10 | Payee not opted into USDC ASA | Pre-flight | `NOT_OPTED_IN` with the offending address | **$0** |
 | 11 | Agent balance insufficient | Pre-flight / simulation | `INSUFFICIENT_BALANCE` | **$0** |
 | 12 | **Simulation fails** | `simulateTransactions` | Group **never submitted**; decoded failure surfaced | **$0** |
@@ -975,10 +975,12 @@ Every one of these is implemented. None is a stub.
 
 ```env
 # ── Network ─────────────────────────────────────────────
-NETWORK=algorand:testnet                 # single CAIP-2 constant; flip for mainnet
+# CAIP-2 is the genesis-hash form, NOT the string "algorand:testnet".
+# Prefer importing ALGORAND_TESTNET_CAIP2 from @x402/avm over hardcoding.
+NETWORK=algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe
 ALGOD_URL=https://testnet-api.algonode.cloud
 INDEXER_URL=https://testnet-idx.algonode.cloud
-USDC_ASA_ID=<testnet_usdc_asa_id>
+USDC_ASA_ID=10458941                     # testnet; mainnet is 31566704 (USDC_TESTNET_ASA_ID / USDC_MAINNET_ASA_ID)
 
 # ── Facilitator ─────────────────────────────────────────
 FACILITATOR_URL=https://facilitator.goplausible.xyz
@@ -1028,7 +1030,7 @@ Config is validated at boot by a Zod schema. **A missing or malformed variable c
 
 - **Network selection is one CAIP-2 constant.** Testnet → mainnet is a config change, nothing else. `NETWORK`, `ALGOD_URL`, `INDEXER_URL`, and `USDC_ASA_ID` are the only things that move.
 - **The facilitator supports mainnet Algorand today.**
-- **Group size cap (16) is respected and asserted.** Larger workflows shard into sequential atomic batches under a shared workflow id — designed and documented, not implemented (see §14).
+- **Group size is capped at 16 by the facilitator, and one slot is the fee payer — so the router asserts `legs.length <= 15`.** Larger workflows shard into sequential atomic batches under a shared workflow id — designed and documented, not implemented (see §14).
 - **Policy engine and receipt store are stateless-friendly** — all state is in Postgres, so the router scales horizontally behind a load balancer with no session affinity.
 - **Idempotency keys make the whole execute path safe to retry** from any client, which is a prerequisite for production CI integration.
 

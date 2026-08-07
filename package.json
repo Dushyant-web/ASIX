@@ -1,0 +1,32 @@
+{
+  "name": "axis",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "spike": "node scripts/spike-atomic-group.ts",
+    "accounts:new": "node scripts/setup-accounts.ts",
+    "accounts:optin": "node scripts/optin-usdc.ts",
+    "accounts:check": "node scripts/check-accounts.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@algorandfoundation/algokit-utils": "10.0.0-alpha.46",
+    "@x402/avm": "2.21.0",
+    "@x402/core": "2.21.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.2"
+  }
+}

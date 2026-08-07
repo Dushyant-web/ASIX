@@ -34,3 +34,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# generated testnet accounts — MNEMONICS, never commit
+.env.accounts
