@@ -19,8 +19,13 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "scripts/**/*.ts",
-    "packages/**/*.ts",
-    "providers/**/*.ts"
+    "backend/**/*.ts",
+    "frontend/**/*.ts",
+    "frontend/**/*.tsx"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "**/.next"
   ]
 }

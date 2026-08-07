@@ -36,4 +36,5 @@ npm-debug.log*
 pnpm-debug.log*
 
 # generated testnet accounts — MNEMONICS, never commit
-.env.accounts
+**/.env.accounts
+.bundle/

@@ -147,3 +147,17 @@ Useful utils: `encodeTransaction`, `decodeTransaction`, `decodeSignedTransaction
       its encoding helpers?
 - [ ] Does `verify()` on leg 2 still succeed **after** the group is already committed
       on chain, or must all verifies precede the single settle?
+
+## 8. Cloudflare Workers bundling — VERIFIED
+
+Phase 0 gate item. `wrangler deploy --dry-run` on a Worker importing `hono`,
+`@x402/hono`, `@x402/avm`, `@x402/avm/exact/server` and
+`@algorandfoundation/algokit-utils/algorand-client`:
+
+```
+Total Upload: 1588.80 KiB / gzip: 293.16 KiB
+```
+
+Bundles cleanly on `workerd` with `compatibility_flags = ["nodejs_compat"]`.
+293 KB gzipped is well inside the Workers size limit, so the four providers can
+host there as planned. Source: `backend/providers/_bundle-check/`.

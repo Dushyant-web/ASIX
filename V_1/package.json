@@ -12,10 +12,10 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "spike": "node scripts/spike-atomic-group.ts",
-    "accounts:new": "node scripts/setup-accounts.ts",
-    "accounts:optin": "node scripts/optin-usdc.ts",
-    "accounts:check": "node scripts/check-accounts.ts"
+    "spike": "node backend/scripts/spike-atomic-group.ts",
+    "accounts:new": "node backend/scripts/setup-accounts.ts",
+    "accounts:optin": "node backend/scripts/optin-usdc.ts",
+    "accounts:check": "node backend/scripts/check-accounts.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -1,0 +1,10 @@
+packages:
+  - "backend/shared"
+  - "backend/guard"
+  - "backend/router"
+  - "backend/receipts"
+  - "backend/providers/*"
+  - "frontend/*"
+
+onlyBuiltDependencies:
+  - esbuild
