@@ -11,6 +11,7 @@
 import {
   pgTable, text, bigint, integer, boolean, jsonb, timestamp, index,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /** microUSDC helper — always bigint mode, never a JS number. */
 const micro = (name: string) => bigint(name, { mode: "bigint" });
@@ -47,7 +48,7 @@ export const runs = pgTable("runs", {
   groupId: text("group_id"),
   status: text("status").notNull().default("PENDING"),
   totalMicro: micro("total_micro").notNull(),
-  refundedMicro: micro("refunded_micro").notNull().default(0n),
+  refundedMicro: micro("refunded_micro").notNull().default(sql`0`),
   confirmedRound: bigint("confirmed_round", { mode: "bigint" }),
   error: jsonb("error"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
