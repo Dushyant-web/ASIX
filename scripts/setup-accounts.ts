@@ -65,12 +65,12 @@ for (const p of payees) console.log(`${p.name.padEnd(15)}${p.acct.addr}`);
 
 hr("NEXT — fund the agent (this part is manual)");
 console.log(`
-1. Open   https://bank.testnet.algorand.network/
+1. Open   https://lora.algokit.io/testnet/fund
    Paste  ${agent.addr}
    Dispense ALGO.
 
 2. Get testnet USDC for the SAME address:
-   https://dispenser.circle.com/   (select Algorand Testnet)
+   https://lora.algokit.io/testnet/fund  →  'Fund with USDC' section
 
 3. Then run:
      pnpm accounts:check     # confirms balances landed

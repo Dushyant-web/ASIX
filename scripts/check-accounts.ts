@@ -55,8 +55,8 @@ const agent = rows[0];
 const payees = rows.slice(1);
 const problems: string[] = [];
 
-if (agent.algos < 200_000n) problems.push("Agent has < 0.2 ALGO — fund it at https://bank.testnet.algorand.network/");
-if (!agent.optedIn) problems.push("Agent is not opted into USDC — get testnet USDC at https://dispenser.circle.com/");
+if (agent.algos < 200_000n) problems.push("Agent has < 0.2 ALGO — fund it at https://lora.algokit.io/testnet/fund");
+if (!agent.optedIn) problems.push("Agent is not opted into USDC — get testnet USDC at https://lora.algokit.io/testnet/fund (USDC section)");
 else if (agent.usdc < 200_000n) problems.push(`Agent holds only ${fromMicro(agent.usdc)} USDC — need ≥ 0.20 for the spike`);
 
 const notOpted = payees.filter((p) => !p.optedIn);

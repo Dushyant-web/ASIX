@@ -103,7 +103,7 @@ P9  Deploy · document · rehearse
    ```
    scripts/setup-accounts.ts   → prints 5 addresses + mnemonics
    ```
-2. **Fund the agent** from the [testnet dispenser](https://bank.testnet.algorand.network/) with ALGO and test USDC.
+2. **Fund the agent** from the [testnet dispenser](https://lora.algokit.io/testnet/fund) with ALGO and test USDC.
 3. **Opt every payee into the USDC ASA.** This is the #1 silent failure — a payment to a non-opted-in address fails the whole group.
    ```
    scripts/optin-usdc.ts
@@ -459,7 +459,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 ### Prerequisites
 
 - Node 20+ (22 LTS recommended), pnpm 9+
-- Algorand testnet account funded with test USDC ([dispenser](https://bank.testnet.algorand.network/))
+- Algorand testnet account funded with test USDC ([dispenser](https://lora.algokit.io/testnet/fund))
 - Test USDC ASA opt-in on **every** provider address
 - Anthropic API key
 - Accounts: Cloudflare, Railway (or Fly), Vercel, Neon
