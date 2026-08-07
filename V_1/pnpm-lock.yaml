@@ -56,6 +56,85 @@ importers:
         specifier: ^4.0.0
         version: 4.119.0
 
+  backend/providers/_kit:
+    dependencies:
+      '@axis/shared':
+        specifier: workspace:*
+        version: link:../../shared
+      '@x402/core':
+        specifier: 2.21.0
+        version: 2.21.0
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+
+  backend/providers/bug-summarizer:
+    dependencies:
+      '@axis/provider-kit':
+        specifier: workspace:*
+        version: link:../_kit
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.119.0
+
+  backend/providers/commit-roaster:
+    dependencies:
+      '@axis/provider-kit':
+        specifier: workspace:*
+        version: link:../_kit
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.119.0
+
+  backend/providers/diff-explainer:
+    dependencies:
+      '@axis/provider-kit':
+        specifier: workspace:*
+        version: link:../_kit
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.119.0
+
+  backend/providers/guardrail-checker:
+    dependencies:
+      '@axis/provider-kit':
+        specifier: workspace:*
+        version: link:../_kit
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.119.0
+
   backend/router:
     dependencies:
       '@axis/shared':

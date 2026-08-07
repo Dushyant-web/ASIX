@@ -38,3 +38,6 @@ pnpm-debug.log*
 # generated testnet accounts — MNEMONICS, never commit
 **/.env.accounts
 .bundle/
+
+# wrangler local secrets
+**/.dev.vars
