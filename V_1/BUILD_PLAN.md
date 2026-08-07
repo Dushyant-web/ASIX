@@ -22,6 +22,8 @@
 10. [Phase 7 — Console](#phase-7--console)
 11. [Phase 8 — Hardening](#phase-8--hardening)
 12. [Phase 9 — Deploy, Document, Rehearse](#phase-9--deploy-document-rehearse)
+13. [Phase F1 — UX (parallel)](#phase-f1--ux-owner-dushyant--runs-in-parallel-with-backend)
+14. [Phase F2 — UI (parallel)](#phase-f2--ui-owner-team--runs-in-parallel-with-f1)
 13. [Daily Development Workflow](#13-daily-development-workflow)
 14. [Command Reference](#14-command-reference)
 15. [Deployment Runbook](#15-deployment-runbook)
@@ -398,6 +400,126 @@ Turns "it works on my machine" into "it works in front of judges."
 - [ ] A teammate follows `DEPLOYMENT.md` from scratch and reaches a working deploy
 - [ ] The demo has been rehearsed twice with a timer and fits the slot
 - [ ] A pre-generated fallback receipt id exists in case live testnet misbehaves
+
+---
+
+## Phase F1 — UX (owner: Dushyant) · runs in PARALLEL with backend
+
+> **This phase does not wait for the backend.** It is unblocked today by
+> `backend/shared/src/fixtures/mock-run.ts`, which replays a complete, realistic
+> run — including a provider failing and being refunded — through the exact same
+> `RunEvent` types the real router emits. Build against the mock; swap one import
+> at the end and it is live.
+
+UX owns **behaviour**: what exists, what it does, what state it is in, and how it
+talks to the backend. Not colours, not spacing.
+
+### Work
+
+**F1.1 — The event→visual state machine**
+The single most important artifact in the frontend. A pure function:
+
+```
+(currentState, RunEvent) -> newState
+```
+
+Every node's `NodeState`, the 8-step protocol rail, the group slots, the running
+totals. Pure, synchronous, and **unit tested against the mock stream** — no React
+involved. If this is right, the UI cannot desync from the protocol.
+
+**F1.2 — Screens and every state each can be in**
+Not just the happy path. Each screen must define: empty · loading · streaming ·
+success · policy-blocked · simulation-failed · PARTIAL (refunded) · connection lost.
+
+- `/` — the demo screen, one button: *"Should I merge this PR?"*
+- `/runs/:id` — live run view
+- `/receipts/:id` — the unified receipt (must render standalone; a judge may open it cold)
+- `/policy` — ceilings, headroom, kill switch
+
+**F1.3 — Interaction contract**
+Every button, its enabled/disabled rule, what it fires, what it does while pending,
+and what happens on failure. Includes: run, re-quote on expiry, kill switch,
+copy-txid, open-in-explorer, replay-run.
+
+**F1.4 — Backend wiring**
+- typed API client importing schemas from `@axis/shared` (never re-declare types)
+- `useRunStream` — `EventSource` with reconnect, event de-dup by `seq`, and gap detection
+- TanStack Query for quote/receipt/policy fetches
+
+**F1.5 — The component contract**
+For each component: exact props, derived entirely from the state machine. This is
+the **handshake with Phase F2** — once props are frozen, UI can build in parallel
+without touching logic.
+
+### Definition of Done
+- [ ] State machine passes unit tests replaying the full mock stream, including the PARTIAL/refund path
+- [ ] Every screen renders every one of its declared states from mock data
+- [ ] Component prop contracts written down and frozen
+- [ ] `useRunStream` survives a mid-run disconnect and resumes without duplicating events
+- [ ] Zero secrets, zero business logic in the client — it only renders what it receives
+
+---
+
+## Phase F2 — UI (owner: team) · runs in PARALLEL with F1
+
+UI owns **appearance and motion**. It consumes the frozen prop contracts from F1
+and never reaches into state or the network.
+
+### Work
+
+**F2.1 — Design system**
+Dark, high-contrast, **legible on a projector at 1280×720**. Type scale, spacing,
+one accent colour, and a status palette (pending / paid / delivered / failed /
+refunded) used consistently everywhere.
+
+**F2.2 — The components**
+
+| Component | What it must convey |
+|---|---|
+| `WorkflowGraph` | 4 nodes + dependency edges; each node's state visible at a glance |
+| `ChallengeCard` | the verbatim `402` body — the judge sees real protocol, not a summary |
+| `ProtocolRail` | the brief's own 8 steps, ticking off live |
+| `GroupPanel` | slots snapping into ONE container; "1 signature · N payments" |
+| `TxidList` | 4 txids, each one click from the explorer |
+| `ReceiptView` | the unified receipt; must look like a document worth keeping |
+| `PolicyPanel` | headroom bars — showing the guard PASSING is as valuable as blocking |
+| `EventLog` | raw SSE feed, monospace, auto-scrolling |
+
+**F2.3 — Motion (the part that wins)**
+- nodes pulse while probing, settle when quoted
+- group slots physically snap together on compose
+- **coins travel along edges** to 4 addresses on settle
+- **coins travel BACKWARDS on a refund** ← nobody else will have this shot
+- simulation failure: the group visibly *does not* submit
+- honour `prefers-reduced-motion`
+
+**F2.4 — Demo readiness**
+Projector-legible, no layout shift mid-run, and a "replay last run" control so the
+demo can be re-run instantly if something goes wrong on stage.
+
+### Definition of Done
+- [ ] Every component renders from the frozen props with no logic of its own
+- [ ] All eight protocol steps and all twelve `NodeState` values have a distinct visual
+- [ ] The refund animation reads unmistakably as *money going backwards*
+- [ ] Readable from 3 metres at 1280×720
+- [ ] Full mock run plays start to finish with no jank
+
+---
+
+## Parallelisation
+
+```
+        ┌─ backend  P2 → P3 → P4 → P5 → P6 ─┐
+ P0,P1 ─┤                                    ├─ integrate → P8 → P9
+        ├─ F1 UX  (Dushyant) ────────────────┤
+        └─ F2 UI  (team) ────────────────────┘
+```
+
+Three tracks, one contract. The **`RunEvent` schema in `@axis/shared` is the
+integration point** — backend emits it, F1 consumes it, F2 renders what F1 derives.
+Nobody is blocked on anybody, because the mock stream produces real events today.
+
+Integration is one line: point `useRunStream` at the router instead of the mock.
 
 ---
 

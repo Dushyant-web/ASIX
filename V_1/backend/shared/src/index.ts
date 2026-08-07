@@ -17,3 +17,5 @@ export * from "./schemas/events.ts";
 
 export * from "./dag/resolve.ts";
 export * from "./dag/interpolate.ts";
+
+export * from "./fixtures/mock-run.ts";
