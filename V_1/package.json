@@ -20,7 +20,8 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "turbo": "^2.3.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "@cloudflare/workers-types": "^4.20250109.0"
   },
   "dependencies": {
     "@algorandfoundation/algokit-utils": "10.0.0-alpha.46",

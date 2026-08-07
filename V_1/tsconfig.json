@@ -14,7 +14,8 @@
     "verbatimModuleSyntax": false,
     "noEmit": true,
     "types": [
-      "node"
+      "node",
+      "@cloudflare/workers-types"
     ],
     "allowImportingTsExtensions": true
   },

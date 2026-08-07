@@ -10,3 +10,10 @@ FACILITATOR_URL = "https://facilitator.goplausible.xyz"
 PAY_TO_GUARDRAIL = ""
 
 # Secrets (wrangler secret put): NVIDIA_API_KEY
+
+# Replay-protection claim store (M3). Create once:
+#   npx wrangler kv namespace create AXIS_CLAIMS
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "AXIS_CLAIMS"
+id = ""

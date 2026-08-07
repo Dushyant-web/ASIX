@@ -24,6 +24,8 @@ import type { LlmEnv } from "./llm.ts";
 
 /** Every provider calls the model, so the LLM credentials are part of its env. */
 export interface ProviderEnv extends LlmEnv {
+  /** KV namespace backing single-use payment claims (mitigation M3). */
+  AXIS_CLAIMS?: KVNamespace;
   FACILITATOR_URL?: string;
   NETWORK?: string;
   USDC_ASA_ID?: string;
