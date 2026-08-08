@@ -80,6 +80,10 @@ export const api = {
   /** Every run/receipt in the DB, newest first. */
   receipts: () => fetch(`${BASE}/v1/receipts`).then((r) => r.json() as Promise<{ receipts: ReceiptSummary[] }>),
 
+  /** Launch the autonomous agent: it picks a workflow from the goal and pays
+   *  atomically within budget. Returns a runId to stream live. */
+  runAgent: (goal: string, budgetUSDC: number) => post<{ runId: string }>("/v1/agent/run", { goal, budgetUSDC }),
+
   /** JWT auth — plain email + password, no third-party provider. */
   signup: (email: string, password: string) => post<AuthResponse>("/v1/auth/signup", { email, password }),
   login: (email: string, password: string) => post<AuthResponse>("/v1/auth/login", { email, password }),

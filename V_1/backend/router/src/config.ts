@@ -49,6 +49,12 @@ const schema = z.object({
   // locally, but set a real secret in any shared deploy.
   JWT_SECRET: z.string().min(16).default("axis-dev-jwt-secret-change-me-please"),
 
+  // NVIDIA NIM — powers the autonomous agent's workflow choice. Optional: with
+  // no key the agent falls back to the first workflow.
+  NVIDIA_API_KEY: z.string().optional(),
+  NVIDIA_BASE_URL: z.string().url().optional(),
+  NVIDIA_MODEL: z.string().optional(),
+
   DATABASE_URL: z.string().url(),
 
   MAX_WORKFLOW_SPEND_MICRO: zMicro.default("1000000"),

@@ -17,6 +17,7 @@ import { signup, login } from "./engine/auth.ts";
 import { getStored, store } from "./middleware/idempotency.ts";
 import { allow } from "./middleware/ratelimit.ts";
 import { runAttack, primePayment } from "./engine/redteam.ts";
+import { runAgentInline } from "./engine/agent.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
@@ -156,6 +157,28 @@ export function createApp(cfg: Config) {
     } catch (e) {
       return c.json({ fired: 0, granted: 0, blocked: 0, mitigation: "", detail: (e as Error).message }, 500);
     }
+  });
+
+  /**
+   * POST /v1/agent/run — the autonomous agent from the console. An LLM picks a
+   * workflow from the goal; it settles atomically only within budget. Returns a
+   * runId immediately and streams the whole run on it (the console + extension
+   * animate it live); the agent finishes in the background.
+   */
+  app.post("/v1/agent/run", async (c) => {
+    let body: { goal?: string; budgetUSDC?: number };
+    try { body = await c.req.json(); } catch {
+      return c.json({ error: { code: "INVALID_INPUT", message: "body must be JSON" } }, 400);
+    }
+    const goal = String(body.goal ?? "").trim();
+    const budgetUSDC = Number(body.budgetUSDC);
+    if (!goal) return c.json({ error: { code: "INVALID_INPUT", message: "goal is required" } }, 400);
+    if (!Number.isFinite(budgetUSDC) || budgetUSDC <= 0) {
+      return c.json({ error: { code: "INVALID_INPUT", message: "budgetUSDC must be a positive number" } }, 400);
+    }
+    const runId = `run_${randomUUID().slice(0, 12)}`;
+    void runAgentInline(runId, goal, budgetUSDC, cfg); // fire-and-forget; streams on runId
+    return c.json({ runId });
   });
 
   /** GET /v1/workflows — the workflows an agent can run (id + provider steps). */

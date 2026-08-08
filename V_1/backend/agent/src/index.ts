@@ -15,7 +15,7 @@
  * Zero dependencies: it uses @axis/pay for money and NIM's OpenAI-compatible
  * HTTP API for reasoning. Env is loaded with node's built-in loadEnvFile.
  */
-import { createAxisClient, AxisPayError, type Receipt, type WorkflowInfo } from "@axis/pay";
+import { createAxisClient, AxisPayError, type Receipt, type WorkflowInfo } from "axis-pay";
 
 export interface AgentOptions {
   goal: string;
@@ -72,17 +72,21 @@ async function decide(nim: AgentOptions["nim"], goal: string, workflows: Workflo
     return { workflow: first.id, inputs: Object.fromEntries(first.inputs.map((k) => [k, goal])) };
   }
   const reply = await chat(nim,
-    "You are an autonomous agent that selects a paid workflow and fills its inputs. " +
-    "Reply with ONLY a JSON object: {\"workflow\": string, \"inputs\": object}. " +
-    "The inputs object must contain exactly the required input keys for the chosen workflow, as strings.",
-    `Goal: ${goal}\n\nAvailable workflows:\n${catalogue}\n\nChoose one and produce its inputs from the goal.`,
+    "You are an autonomous purchasing agent. You may spend money ONLY on a workflow that genuinely accomplishes the goal. " +
+    "Each workflow does one specific job — e.g. 'pr-review' reviews a code change / diff; it does NOT generate images or answer general questions. " +
+    "Reply with ONLY JSON. If a workflow fits: {\"workflow\": <id>, \"inputs\": {<required keys as strings>}}. " +
+    "If NO workflow fits: {\"workflow\": null, \"reason\": \"<one short sentence>\"}.",
+    `Goal: ${goal}\n\nAvailable workflows:\n${catalogue}`,
   );
   const parsed = extractJson(reply);
-  const workflow = workflows.find((w) => w.id === parsed?.workflow) ?? first;
+  const chosen = workflows.find((w) => w.id === parsed?.workflow);
+  if (!chosen) {
+    const reason = typeof parsed?.reason === "string" && parsed.reason.trim() ? parsed.reason.trim() : "no available service can do this task";
+    throw new AxisPayError("NO_SUITABLE_SERVICE", `Can't do this: ${reason}`);
+  }
   const rawInputs = (parsed?.inputs as Record<string, unknown>) ?? {};
-  // Guarantee every required input is present — never hand the router `undefined`.
-  const inputs = Object.fromEntries(workflow.inputs.map((k) => [k, String(rawInputs[k] ?? goal)]));
-  return { workflow: workflow.id, inputs };
+  const inputs = Object.fromEntries(chosen.inputs.map((k) => [k, String(rawInputs[k] ?? goal)]));
+  return { workflow: chosen.id, inputs };
 }
 
 export async function runAutonomousAgent(opts: AgentOptions): Promise<AgentOutcome> {
@@ -94,7 +98,15 @@ export async function runAutonomousAgent(opts: AgentOptions): Promise<AgentOutco
   log(`💰 budget: $${opts.budgetUSDC.toFixed(2)}`);
 
   const workflows = await axis.listWorkflows();
-  const decision = await decide(opts.nim, opts.goal, workflows);
+  let decision: { workflow: string; inputs: Record<string, unknown> };
+  try {
+    decision = await decide(opts.nim, opts.goal, workflows);
+  } catch (e) {
+    // No service fits the goal — refuse, pay nothing.
+    const reason = e instanceof AxisPayError ? e.message : (e as Error).message;
+    log(`🛑 ${reason}`);
+    return { decision: { workflow: "none", inputs: {} }, quotedUSDC: "0", paid: false, reason };
+  }
   log(`🧠 chose workflow "${decision.workflow}" with inputs: ${Object.keys(decision.inputs).join(", ")}`);
 
   const quote = await axis.quote(decision.workflow, decision.inputs, agentAddress);

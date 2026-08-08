@@ -39,7 +39,7 @@ importers:
 
   backend/agent:
     dependencies:
-      '@axis/pay':
+      axis-pay:
         specifier: workspace:*
         version: link:../sdk
 
@@ -51,12 +51,12 @@ importers:
 
   backend/mcp:
     dependencies:
-      '@axis/pay':
-        specifier: workspace:*
-        version: link:../sdk
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.30.0(zod@3.25.76)
+      axis-pay:
+        specifier: workspace:*
+        version: link:../sdk
       zod:
         specifier: ^3.24.2
         version: 3.25.76

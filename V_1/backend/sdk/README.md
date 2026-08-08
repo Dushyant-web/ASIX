@@ -1,10 +1,10 @@
-# @axis/pay
+# axis-pay
 
 Drop-in client for **atomic multi-provider x402 payments** on Algorand. One call
 pays N paid APIs in a single all-or-nothing group and returns a unified receipt.
 
 ```ts
-import { createAxisClient } from "@axis/pay";
+import { createAxisClient } from "axis-pay";
 
 const axis = createAxisClient({ routerUrl: "http://localhost:8080" });
 

@@ -1,7 +1,7 @@
 # AXIS Console
 
 The live dashboard. One button runs a real workflow; everything on screen is
-driven by the router's actual event stream — nothing is scripted or replayed
+driven by the router's actual event stream — nothing is scripted or replayed.
 from a recording.
 
 ## Who owns what

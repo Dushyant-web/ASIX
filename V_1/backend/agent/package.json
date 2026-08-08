@@ -9,6 +9,6 @@
     "start": "node src/cli.ts"
   },
   "dependencies": {
-    "@axis/pay": "workspace:*"
+    "axis-pay": "workspace:*"
   }
 }

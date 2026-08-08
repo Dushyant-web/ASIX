@@ -13,14 +13,33 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { z } from "zod";
-import { createAxisClient, AxisPayError } from "@axis/pay";
+import { createAxisClient, AxisPayError } from "axis-pay";
 
 const routerUrl = process.env.ROUTER_URL ?? "http://localhost:8080";
 const defaultAgent = process.env.AGENT_ADDRESS ?? "NG5SZZ3U6XOB4L5N4CPZ7SLIZRDIEK2CM4XMB5WDPLAWSCIRCIJTTKYOPQ";
 const axis = createAxisClient({ routerUrl });
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
+
+/**
+ * Build the workflow inputs. If `filePath` is given, its contents become the
+ * `diff` (so you can review a file by name instead of pasting it), and the
+ * commit message defaults to "Review <filename>".
+ */
+function buildInputs(inputs: Record<string, unknown> | undefined, filePath?: string, commitMessage?: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(inputs ?? {}) };
+  if (filePath) {
+    const content = readFileSync(filePath, "utf8").slice(0, 20_000); // match the provider input cap
+    out.diff = content;
+    out.commitMessage = commitMessage ?? out.commitMessage ?? `Review ${basename(filePath)}`;
+  } else if (commitMessage) {
+    out.commitMessage = commitMessage;
+  }
+  return out;
+}
 
 const server = new McpServer({ name: "axis-pay", version: "0.1.0" });
 
@@ -43,16 +62,18 @@ server.registerTool(
   "quote_workflow",
   {
     title: "Quote a workflow (no payment)",
-    description: "Price a workflow by reading each provider's live x402 challenge. No money moves. Returns the total, per-provider prices, and whether the spend policy allows it. Call this before pay_and_run.",
+    description: "Price a workflow by reading each provider's live x402 challenge. No money moves. Returns the total, per-provider prices, and whether the spend policy allows it. Call this before pay_and_run. You can pass `inputs` directly, OR a `filePath` to a local file whose contents become the diff to review.",
     inputSchema: {
       workflow: z.string().describe("workflow id, e.g. 'pr-review'"),
-      inputs: z.record(z.any()).describe("the workflow's inputs, e.g. { diff, commitMessage }"),
+      inputs: z.record(z.any()).optional().describe("the workflow's inputs, e.g. { diff, commitMessage }"),
+      filePath: z.string().optional().describe("absolute path to a local file to review; its contents become the diff — use this instead of pasting a diff"),
+      commitMessage: z.string().optional().describe("commit message for the review; defaults to 'Review <filename>' when a filePath is given"),
       agentAddress: z.string().optional().describe("Algorand address paying; defaults to the server's configured agent"),
     },
   },
-  async ({ workflow, inputs, agentAddress }) => {
+  async ({ workflow, inputs, filePath, commitMessage, agentAddress }) => {
     try {
-      const q = await axis.quote(workflow, inputs as Record<string, unknown>, agentAddress ?? defaultAgent);
+      const q = await axis.quote(workflow, buildInputs(inputs as Record<string, unknown>, filePath, commitMessage), agentAddress ?? defaultAgent);
       const legs = q.legs.map((l) => `  - ${l.provider}: $${l.priceUSDC}`).join("\n");
       return text(`Quote for "${workflow}":\n  total: $${q.totalUSDC}\n  spend policy: ${q.policy.verdict}\n${legs}`);
     } catch (e) {
@@ -65,17 +86,19 @@ server.registerTool(
   "pay_and_run",
   {
     title: "Pay and run a workflow atomically",
-    description: "Pay all of a workflow's providers in ONE atomic Algorand group (one signature, all-or-nothing) and return each provider's result plus a unified receipt. If budgetUSDC is set and the quote exceeds it, nothing is paid. If a provider takes payment but fails, its leg is refunded on-chain and the run is PARTIAL.",
+    description: "Pay all of a workflow's providers in ONE atomic Algorand group (one signature, all-or-nothing) and return each provider's result plus a unified receipt. You can pass `inputs` directly, OR a `filePath` to a local file to review (its contents become the diff). If budgetUSDC is set and the quote exceeds it, nothing is paid. If a provider takes payment but fails, its leg is refunded on-chain and the run is PARTIAL.",
     inputSchema: {
       workflow: z.string().describe("workflow id, e.g. 'pr-review'"),
-      inputs: z.record(z.any()).describe("the workflow's inputs"),
+      inputs: z.record(z.any()).optional().describe("the workflow's inputs, e.g. { diff, commitMessage }"),
+      filePath: z.string().optional().describe("absolute path to a local file to review; its contents become the diff — use this instead of pasting a diff"),
+      commitMessage: z.string().optional().describe("commit message for the review; defaults to 'Review <filename>' when a filePath is given"),
       budgetUSDC: z.number().positive().optional().describe("hard spending ceiling in USDC; the payment is refused before settling if the quote exceeds it"),
       agentAddress: z.string().optional().describe("Algorand address paying; defaults to the server's configured agent"),
     },
   },
-  async ({ workflow, inputs, budgetUSDC, agentAddress }) => {
+  async ({ workflow, inputs, filePath, commitMessage, budgetUSDC, agentAddress }) => {
     try {
-      const r = await axis.pay(workflow, inputs as Record<string, unknown>, agentAddress ?? defaultAgent, { budgetUSDC });
+      const r = await axis.pay(workflow, buildInputs(inputs as Record<string, unknown>, filePath, commitMessage), agentAddress ?? defaultAgent, { budgetUSDC });
       const legs = r.legs.map((l) => `  - ${l.provider} [${l.status}] ${l.explorerUrl}`).join("\n");
       const results = r.legs
         .filter((l) => l.result != null)

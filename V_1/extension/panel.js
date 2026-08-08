@@ -322,3 +322,9 @@ $("save").addEventListener("click", () => {
 view = fresh();
 pollLatest();
 setInterval(pollLatest, 2000);
+
+// Chrome throttles background timers, so a run triggered from ANOTHER app
+// (e.g. Claude Desktop via MCP) isn't noticed until the panel is looked at
+// again. Poll immediately on refocus/visibility so it catches up at once.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollLatest(); });
+window.addEventListener("focus", pollLatest);

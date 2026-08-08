@@ -1,14 +1,36 @@
 {
-  "name": "@axis/pay",
+  "name": "axis-pay",
   "version": "0.1.0",
   "description": "Drop-in client for atomic multi-provider x402 payments on Algorand. One call pays N APIs atomically and returns a unified receipt.",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "keywords": ["x402", "algorand", "agent", "payments", "usdc", "atomic"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "x402",
+    "algorand",
+    "agent",
+    "payments",
+    "usdc",
+    "atomic"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "example": "node example.ts"
+    "example": "node example.ts",
+    "prepublishOnly": "npm run build"
   }
 }
