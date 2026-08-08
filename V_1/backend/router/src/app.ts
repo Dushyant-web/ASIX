@@ -13,6 +13,8 @@ import { buildQuote, quoteToJson, persistQuote } from "./engine/quote.ts";
 import { subscribe } from "./bus.ts";
 import { execute } from "./engine/execute.ts";
 import { buildReceipt } from "./engine/receipt.ts";
+import { getStored, store } from "./middleware/idempotency.ts";
+import { allow } from "./middleware/ratelimit.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
@@ -92,9 +94,22 @@ export function createApp(cfg: Config) {
     // Reuse the runId minted at quote time so the console — already subscribed
     // to that run's SSE stream — sees the settle and execute events too. Only
     // mint a fresh one if the client did not carry it through.
+    // Rate limit per caller (IP). Keying on the idempotency key would defeat
+    // the limit, since each key is unique per request.
+    const idemKey = c.req.header("Idempotency-Key");
+    const caller = c.req.header("x-forwarded-for") ?? c.req.header("cf-connecting-ip") ?? "local";
+    if (!allow(caller)) return c.json({ error: { code: "RATE_LIMITED", message: "too many requests" } }, 429);
+
+    // Idempotent replay: a retry with the same key returns the stored response.
+    if (idemKey) {
+      const prior = await getStored(idemKey, cfg);
+      if (prior) return c.json(prior as object);
+    }
+
     const runId = body.runId ?? `run_${crypto.randomUUID().slice(0, 12)}`;
     try {
       const result = await execute(body.quoteId, cfg, runId, body.chaos);
+      if (idemKey) await store(idemKey, runId, result, cfg);
       return c.json(result);
     } catch (e) {
       if (e instanceof AxisError) return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 409 | 500);
