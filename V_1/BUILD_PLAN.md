@@ -22,7 +22,8 @@
 10. [Phase 7 — Console](#phase-7--console)
 11. [Phase 8 — Hardening](#phase-8--hardening)
 12. [Phase 9 — Deploy, Document, Rehearse](#phase-9--deploy-document-rehearse)
-13. [Phase F1 — UX (parallel)](#phase-f1--ux-owner-dushyant--runs-in-parallel-with-backend)
+13. [Phase A — Red-Team Theatre (Start Attack demo)](#phase-a--red-team-theatre-the-start-attack-demo)
+14. [Phase F1 — UX (parallel)](#phase-f1--ux-owner-dushyant--runs-in-parallel-with-backend)
 14. [Phase F2 — UI (parallel)](#phase-f2--ui-owner-team--runs-in-parallel-with-f1)
 13. [Daily Development Workflow](#13-daily-development-workflow)
 14. [Command Reference](#14-command-reference)
@@ -400,6 +401,66 @@ Turns "it works on my machine" into "it works in front of judges."
 - [ ] A teammate follows `DEPLOYMENT.md` from scratch and reaches a working deploy
 - [ ] The demo has been rehearsed twice with a timer and fits the slot
 - [ ] A pre-generated fallback receipt id exists in case live testnet misbehaves
+
+---
+
+## Phase A — Red-Team Theatre (the "Start Attack" demo)
+
+> **Owner: shared. Depends on Phase 2 (providers) + Phase 5 (settle/receipt).**
+> This is a differentiator, not core plumbing — it is built AFTER the money path
+> works, exactly like every other extra. But it is planned here because it is a
+> deliberate score play on the 15% Innovation and 20% Technical criteria.
+
+### The idea
+
+A **"Start Attack"** entry in the console sidebar. It links the paper
+("Five Attacks on x402 Agentic Payment Protocol", arXiv:2605.11781, downloadable
+in-app), then lets a judge **run each of the five attacks live against our own
+endpoints** and watch — in one animated flow diagram — the attack happening, the
+exact line of defence catching it, and the outcome.
+
+Nobody else at this hackathon will have read this paper, let alone hardened
+against it and then weaponised the proof into the demo.
+
+### Each attack is a self-contained scene
+
+For all five: **the attack animation, the defence that stops it, and a live
+result a judge can re-run.** Same flow diagram as the main run view, but the
+adversary's actions are drawn in red.
+
+| # | Attack | What we fire | What the judge sees stop it |
+|---|---|---|---|
+| **II** | Replay / idempotency | The SAME `X-PAYMENT` sent N times concurrently | N−1 requests bounce off the pre-grant claim; **1 grant, not N**. Live counter. |
+| **III** | Cache leakage | A paid response, then an unpaid client re-requests it | `no-store` + `Vary: X-PAYMENT` → unpaid client gets nothing |
+| **X-res** | Cross-resource replay | A payment signed for `/diff/explain` replayed at `/bug/summarize` | Resource-binding check → `RESOURCE_MISMATCH` |
+| **I-A** | Revert-grant | (assessment scene) grant-before-finality timeline | We wait for confirmed settlement, and Algorand's ~3s deterministic finality has no Ethereum-style reorg — shown as a timeline, not a live exploit |
+| **I-B** | Settlement preemption | (assessment scene) caller-unbound settle | Our group is agent-signed and router-settled once; a third party cannot re-aim it — shown as a binding diagram |
+
+Attacks II, III and X-res are **live and re-runnable** — real requests against
+real endpoints. I-A and I-B are **assessment scenes**: the paper's exploit
+targets EVM/Base assumptions that Algorand's settlement model does not share, so
+we show *why they do not apply* rather than faking an exploit. Being honest
+about which two are structural wins more credit than pretending all five are
+live fireworks.
+
+### Work
+
+- `backend/redteam/` — a runnable attacker harness: `replayFlood(n)`,
+  `cacheProbe()`, `crossResourceReplay()`, each hitting a live provider and
+  returning a structured `AttackResult` (fired, blocked, by-which-defence).
+- Reuse the `RunEvent` stream shape so the attack view uses the SAME animation
+  engine as the main run — an `attack.*` event family in `@axis/shared`.
+- `frontend/console/app/attack/page.tsx` — the sidebar screen: paper download,
+  five attack cards, run button per live attack, the red-flow diagram.
+- Each scene cites the paper section and the exact file+line of our defence.
+
+### Definition of Done
+- [ ] Paper is downloadable from the console
+- [ ] Attacks II, III and cross-resource run LIVE against a deployed provider and are visibly blocked
+- [ ] Each blocked attack names the mitigation (M1/M3/M5) and links our source
+- [ ] I-A and I-B render as honest assessment scenes explaining Algorand's difference
+- [ ] The attack flow reuses the main run animation engine (no second UI)
+- [ ] A judge can re-run any live attack on demand without a reset
 
 ---
 
