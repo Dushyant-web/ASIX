@@ -6,10 +6,7 @@ import { ProtocolRail, WorkflowGraph, GroupPanel, ReceiptStrip, Outcome, EventLo
 import { isTerminal, refundedNodes } from "../../lib/state-machine.ts";
 
 const DEMO_AGENT = process.env.NEXT_PUBLIC_DEMO_AGENT ?? "NG5SZZ3U6XOB4L5N4CPZ7SLIZRDIEK2CM4XMB5WDPLAWSCIRCIJTTKYOPQ";
-const STEPS = [
-  { id: "diff", label: "diff-explainer" }, { id: "guardrail", label: "guardrail-checker" },
-  { id: "roast", label: "commit-roaster" }, { id: "bugsum", label: "bug-summarizer" },
-];
+const STEPS = [["diff","diff-explainer"],["guardrail","guardrail-checker"],["roast","commit-roaster"],["bugsum","bug-summarizer"]];
 
 export default function Failure() {
   const [runId, setRunId] = useState<string | null>(null);
@@ -33,47 +30,41 @@ export default function Failure() {
 
   const refunds = refundedNodes(view);
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 32, display: "grid", gap: 16 }}>
-      <header>
-        <h1 style={{ fontSize: 28, margin: 0 }}>Test failure</h1>
-        <p className="muted" style={{ margin: "4px 0 0" }}>Payment atomicity is not delivery. A provider can take the money and then die. This forces exactly that — and shows the money coming back on chain.</p>
-      </header>
-      <div className="panel">
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Which provider should fail after being paid?</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {STEPS.map((s) => (
-            <button key={s.id} className="btn" onClick={() => setChaos(s.id)} style={{ borderColor: chaos === s.id ? "var(--strong)" : "var(--border)" }}>{s.label}</button>
-          ))}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <button className="btn btn-primary" onClick={run} disabled={busy}>{busy ? "Running…" : `Run with ${chaos} failing`}</button>
-          {useMock && <span className="muted" style={{ fontSize: 12, marginLeft: 12 }}>demo mode (router offline)</span>}
-        </div>
+    <main>
+      <h1>Test failure</h1>
+      <p>Payment atomicity is not delivery. A provider can take the money and then die. This forces exactly that, and shows the money coming back on chain.</p>
+      <p>Which provider should fail after being paid?</p>
+      <div>
+        {STEPS.map(([id, label]) => (
+          <label key={id}>
+            <input type="radio" name="chaos" checked={chaos === id} onChange={() => setChaos(id)} /> {label}
+          </label>
+        ))}
       </div>
-      <div className="panel">
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>What happens, in order</div>
-        <ol className="muted" style={{ fontSize: 12, margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-          <li>All four providers are paid atomically in one group (real settlement).</li>
-          <li>Three deliver. The one you picked returns 502 <span className="strong">after</span> taking payment.</li>
-          <li>AXIS reverses that provider&apos;s leg on chain — a real refund transaction.</li>
-          <li>The run is marked <span className="strong">PARTIAL</span>; the receipt records the refund txid.</li>
-        </ol>
-      </div>
+      <button onClick={run} disabled={busy}>{busy ? "Running..." : `Run with ${chaos} failing`}</button>
+      {useMock ? <span> demo mode (router offline)</span> : null}
+      <h3>What happens, in order</h3>
+      <ol>
+        <li>All four providers are paid atomically in one group.</li>
+        <li>Three deliver. The one you picked returns 502 after taking payment.</li>
+        <li>AXIS reverses that provider&apos;s leg on chain — a real refund transaction.</li>
+        <li>The run is marked PARTIAL; the receipt records the refund txid.</li>
+      </ol>
       <Outcome view={view} />
-      {refunds.length > 0 && (
-        <div className="panel">
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Reversal on chain</div>
+      {refunds.length > 0 ? (
+        <div>
+          <h3>Reversal on chain</h3>
           {refunds.map((n) => (
-            <div key={n.stepId} style={{ fontSize: 12 }}>{n.provider} took ${n.priceUSDC}, failed, refunded → <a href={n.compensationExplorerUrl} target="_blank" rel="noreferrer">refund txid ↗</a></div>
+            <p key={n.stepId}>{n.provider} took ${n.priceUSDC}, failed, refunded — <a href={n.compensationExplorerUrl} target="_blank" rel="noreferrer">refund txid</a></p>
           ))}
         </div>
-      )}
+      ) : null}
       <ProtocolRail view={view} />
       <WorkflowGraph view={view} />
       <GroupPanel view={view} />
       <ReceiptStrip view={view} />
       <EventLog view={view} />
-      {isTerminal(view) && view.receiptId && <a href={`/receipts/${view.receiptId}`}>open the receipt →</a>}
+      {isTerminal(view) && view.receiptId ? <p><a href={`/receipts/${view.receiptId}`}>open the receipt</a></p> : null}
     </main>
   );
 }

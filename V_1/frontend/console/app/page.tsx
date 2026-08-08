@@ -1,5 +1,4 @@
 "use client";
-/** Run workflow — the demo. One button drives the real router; falls back to mock. */
 import { useCallback, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useRunStream, useMockRun } from "../lib/useRunStream.ts";
@@ -28,15 +27,11 @@ export default function Home() {
   }, []);
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 32, display: "grid", gap: 16 }}>
-      <header>
-        <h1 style={{ fontSize: 28, margin: 0 }}>Run workflow</h1>
-        <p className="muted" style={{ margin: "4px 0 0" }}>&quot;Should I merge this PR?&quot; — four paid providers, one atomic payment, one receipt.</p>
-      </header>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <button className="btn btn-primary" onClick={run} disabled={busy}>{busy ? "Running…" : "Should I merge this PR?"}</button>
-        {useMock && <span className="muted" style={{ fontSize: 12 }}>demo mode (router offline)</span>}
-      </div>
+    <main>
+      <h1>Run workflow</h1>
+      <p>&quot;Should I merge this PR?&quot; — four paid providers, one atomic payment, one receipt.</p>
+      <button onClick={run} disabled={busy}>{busy ? "Running..." : "Should I merge this PR?"}</button>
+      {useMock ? <span> demo mode (router offline)</span> : null}
       <Outcome view={view} />
       <ProtocolRail view={view} />
       <PolicyPanel view={view} />
@@ -44,7 +39,7 @@ export default function Home() {
       <GroupPanel view={view} />
       <ReceiptStrip view={view} />
       <EventLog view={view} />
-      {isTerminal(view) && view.receiptId && <a href={`/receipts/${view.receiptId}`}>open the full unified receipt →</a>}
+      {isTerminal(view) && view.receiptId ? <p><a href={`/receipts/${view.receiptId}`}>open the full unified receipt</a></p> : null}
     </main>
   );
 }
