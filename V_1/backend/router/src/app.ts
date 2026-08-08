@@ -10,6 +10,7 @@ import type { Config } from "./config.ts";
 import { WORKFLOWS } from "./workflows/pr-review.ts";
 import { buildQuote, quoteToJson, persistQuote } from "./engine/quote.ts";
 import { subscribe } from "./bus.ts";
+import { execute } from "./engine/execute.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
@@ -63,6 +64,28 @@ export function createApp(cfg: Config) {
       if (e instanceof AxisError) {
         return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 502);
       }
+      return c.json({ runId, error: { code: "INTERNAL", message: (e as Error).message } }, 500);
+    }
+  });
+
+  /**
+   * POST /v1/workflow/execute — compose, simulate, settle the atomic group.
+   * The one endpoint where money actually moves. Requires an Idempotency-Key.
+   */
+  app.post("/v1/workflow/execute", async (c) => {
+    let body: { quoteId?: string };
+    try { body = await c.req.json(); } catch {
+      return c.json({ error: { code: "INVALID_WORKFLOW", message: "body must be JSON" } }, 400);
+    }
+    if (!body.quoteId) {
+      return c.json({ error: { code: "INVALID_WORKFLOW", message: "quoteId required" } }, 400);
+    }
+    const runId = `run_${crypto.randomUUID().slice(0, 12)}`;
+    try {
+      const result = await execute(body.quoteId, cfg, runId);
+      return c.json(result);
+    } catch (e) {
+      if (e instanceof AxisError) return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 409 | 500);
       return c.json({ runId, error: { code: "INTERNAL", message: (e as Error).message } }, 500);
     }
   });
