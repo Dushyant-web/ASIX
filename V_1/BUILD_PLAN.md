@@ -406,63 +406,76 @@ Turns "it works on my machine" into "it works in front of judges."
 
 ## Phase A — Red-Team Theatre (the "Start Attack" demo)
 
-> **Owner: shared. Depends on Phase 2 (providers) + Phase 5 (settle/receipt).**
-> This is a differentiator, not core plumbing — it is built AFTER the money path
-> works, exactly like every other extra. But it is planned here because it is a
-> deliberate score play on the 15% Innovation and 20% Technical criteria.
+> **Owner: shared. Depends on Phase 2 (providers, DONE) + Phase 4/5 (a real
+> payment to replay).** An extra, built after the money path — but planned in
+> detail because it is a deliberate play on the 15% Innovation and 20% Technical
+> criteria, and because it ties the security story directly into the "Why
+> Algorand" thesis.
 
-### The idea
+### The pitch it produces
 
-A **"Start Attack"** entry in the console sidebar. It links the paper
-("Five Attacks on x402 Agentic Payment Protocol", arXiv:2605.11781, downloadable
-in-app), then lets a judge **run each of the five attacks live against our own
-endpoints** and watch — in one animated flow diagram — the attack happening, the
-exact line of defence catching it, and the outcome.
+> "We read the only paper that breaks x402 (arXiv:2605.11781). We fixed the three
+> attacks that apply to any x402 server — here is each one firing live against
+> our own endpoints and bouncing. The other two target Ethereum's probabilistic
+> settlement; Algorand's deterministic finality means they cannot exist here,
+> and we show exactly why. That is why we built on Algorand."
 
-Nobody else at this hackathon will have read this paper, let alone hardened
-against it and then weaponised the proof into the demo.
+The security story and the chain-choice story become one story. No other team
+will have that.
 
-### Each attack is a self-contained scene
+### Three kinds of scene — and the honest split
 
-For all five: **the attack animation, the defence that stops it, and a live
-result a judge can re-run.** Same flow diagram as the main run view, but the
-adversary's actions are drawn in red.
+Being honest about which attacks are live vs structural wins more credit than
+faking five exploits, because a judge who knows the paper will catch a faked
+reorg instantly (you physically cannot inject one on a testnet — the paper's
+authors say the same about Base Sepolia).
 
-| # | Attack | What we fire | What the judge sees stop it |
-|---|---|---|---|
-| **II** | Replay / idempotency | The SAME `X-PAYMENT` sent N times concurrently | N−1 requests bounce off the pre-grant claim; **1 grant, not N**. Live counter. |
-| **III** | Cache leakage | A paid response, then an unpaid client re-requests it | `no-store` + `Vary: X-PAYMENT` → unpaid client gets nothing |
-| **X-res** | Cross-resource replay | A payment signed for `/diff/explain` replayed at `/bug/summarize` | Resource-binding check → `RESOURCE_MISMATCH` |
-| **I-A** | Revert-grant | (assessment scene) grant-before-finality timeline | We wait for confirmed settlement, and Algorand's ~3s deterministic finality has no Ethereum-style reorg — shown as a timeline, not a live exploit |
-| **I-B** | Settlement preemption | (assessment scene) caller-unbound settle | Our group is agent-signed and router-settled once; a third party cannot re-aim it — shown as a binding diagram |
+| Attack | Scene type | What the judge sees |
+|---|---|---|
+| **II — Replay** | 🔴 **LIVE + before/after** | Fire the same payment N times at the real URL. Vulnerable mode → N grants. Protected mode → **1 grant, N−1 blocked**, live counter. The strongest scene. |
+| **Cross-resource replay** | 🔴 **LIVE** | A payment for `/diff/explain` fired at `/bug/summarize` → `RESOURCE_MISMATCH`. |
+| **III — Cache leak** | 🔴 **LIVE before/after** | A deliberately-misconfigured cache in front. No header → paid content leaks to an unpaid client. `no-store` → nothing. |
+| **III — Header corruption** | 🟡 **Robustness** | Duplicate/mangled headers handled deterministically. No real exploit exists (the paper's authors couldn't make nginx/Caddy rewrite it) — a "we're robust" scene, not fireworks. |
+| **I-A — Revert-grant** | ⚪ **Assessment** | A timeline: on Base, grant-before-finality opens an attackable gap; on Algorand settlement *is* finality (~3s, deterministic, no reorgs) so the gap is zero. Plus: our code waits for confirmed settlement, not a mempool signal. |
+| **I-B — Preemption** | ⚪ **Assessment** | An EVM/Permit2 flaw. Our group is agent-signed and settled once; a thief who grabs the signed group can only make the *same* payments land to the *same* providers. Binding diagram. |
+| **IV — Server selection** | ⚪ **N/A** | Attacks open discovery (Bazaar). We use a fixed first-party provider set — no discovery surface to game. Roadmap: M6 if discovery is ever added. |
 
-Attacks II, III and X-res are **live and re-runnable** — real requests against
-real endpoints. I-A and I-B are **assessment scenes**: the paper's exploit
-targets EVM/Base assumptions that Algorand's settlement model does not share, so
-we show *why they do not apply* rather than faking an exploit. Being honest
-about which two are structural wins more credit than pretending all five are
-live fireworks.
+**Tally: 3 live and re-runnable, 1 robustness, 3 assessment.**
+
+### The before/after toggle — the killer visual
+
+The single most convincing thing in the demo. A `VULNERABLE_MODE` flag (env var
+per provider, off by default and NEVER on in a real deploy) that disables one
+mitigation. Same attack, flip the switch, opposite outcome:
+
+- claims off → 1000 replays → **1000 grants** (the paper's 248-per-payment, live)
+- claims on  → 1000 replays → **1 grant, 999 × `PAYMENT_ALREADY_USED`**
+
+The judge watches the counter change with a single toggle. Undeniable, because
+it is the *same real attack* against the *same real endpoint*.
 
 ### Work
 
-- `backend/redteam/` — a runnable attacker harness: `replayFlood(n)`,
-  `cacheProbe()`, `crossResourceReplay()`, each hitting a live provider and
-  returning a structured `AttackResult` (fired, blocked, by-which-defence).
-- Reuse the `RunEvent` stream shape so the attack view uses the SAME animation
-  engine as the main run — an `attack.*` event family in `@axis/shared`.
-- `frontend/console/app/attack/page.tsx` — the sidebar screen: paper download,
-  five attack cards, run button per live attack, the red-flow diagram.
-- Each scene cites the paper section and the exact file+line of our defence.
+- `backend/redteam/` — a runnable attacker harness returning structured
+  `AttackResult` (fired, blocked, by-which-mitigation, counts): `replayFlood(n)`,
+  `crossResourceReplay()`, `cacheProbe()`.
+- `VULNERABLE_MODE` flag threaded through the provider kit, guarded so it cannot
+  be enabled in production config.
+- An `attack.*` event family in `@axis/shared`, so the attack view reuses the
+  SAME animation engine as the main run (adversary actions drawn in red).
+- `frontend/console/app/attack/page.tsx` — sidebar "Start Attack": paper
+  download, the seven scenes, a run button per live attack, the red-flow diagram,
+  the before/after toggle.
+- Each scene cites the paper section and links the exact file+line of our defence.
 
 ### Definition of Done
-- [ ] Paper is downloadable from the console
+- [ ] Paper downloadable from the console
 - [ ] Attacks II, III and cross-resource run LIVE against a deployed provider and are visibly blocked
-- [ ] Each blocked attack names the mitigation (M1/M3/M5) and links our source
-- [ ] I-A and I-B render as honest assessment scenes explaining Algorand's difference
+- [ ] The before/after toggle shows N grants → 1 grant on the SAME live endpoint
+- [ ] Each blocked attack names its mitigation (M1/M3/M5) and links our source
+- [ ] I-A, I-B, IV render as honest assessment scenes explaining Algorand's difference
 - [ ] The attack flow reuses the main run animation engine (no second UI)
-- [ ] A judge can re-run any live attack on demand without a reset
-
----
+- [ ] `VULNERABLE_MODE` is provably impossible to enable in a production deploy
 
 ## Phase F1 — UX (owner: Dushyant) · runs in PARALLEL with backend
 
