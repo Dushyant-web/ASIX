@@ -7,6 +7,7 @@ import { api, type ReceiptSummary } from "../../lib/api";
 export default function Receipts() {
   const [id, setId] = useState("");
   const [rows, setRows] = useState<ReceiptSummary[] | null>(null);
+  const [projMap, setProjMap] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const router = useRouter();
 
@@ -14,6 +15,9 @@ export default function Receipts() {
     api.receipts()
       .then((r) => setRows(r.receipts))
       .catch((e) => setErr(String(e)));
+    api.projects()
+      .then((r) => setProjMap(Object.fromEntries(r.projects.map((p) => [p.id, p.name]))))
+      .catch(() => {});
   }, []);
 
   return (
@@ -33,18 +37,19 @@ export default function Receipts() {
         <table border={1} cellPadding={4}>
           <thead>
             <tr>
-              <th>receipt</th><th>workflow</th><th>status</th><th>total</th><th>refunded</th><th>when</th>
+              <th>receipt</th><th>project</th><th>workflow</th><th>status</th><th>total</th><th>refunded</th><th>when</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.receiptId}>
                 <td><Link href={`/receipts/${r.receiptId}`}>{r.receiptId}</Link></td>
+                <td>{r.projectId ? <Link href={`/projects/${r.projectId}`}>{projMap[r.projectId] ?? r.projectId}</Link> : "—"}</td>
                 <td>{r.workflow}</td>
                 <td>{r.status}</td>
                 <td>${r.totalUSDC}</td>
                 <td>{Number(r.refundedUSDC) > 0 ? `$${r.refundedUSDC}` : "—"}</td>
-                <td>{new Date(r.createdAt).toLocaleString()}</td>
+                <td>{new Date(r.createdAt).toISOString().slice(0, 16).replace("T", " ")}</td>
               </tr>
             ))}
           </tbody>

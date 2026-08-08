@@ -7,9 +7,11 @@ import { session } from "../lib/api";
 const NAV = [
   { href: "/", label: "Run workflow" },
   { href: "/agent", label: "Autonomous agent" },
+  { href: "/projects", label: "Projects" },
+  { href: "/receipts", label: "Receipts" },
+  { href: "/refunds", label: "Refunds" },
   { href: "/failure", label: "Test failure" },
   { href: "/attack", label: "Start attack" },
-  { href: "/receipts", label: "Receipts" },
   { href: "/protocol", label: "How it works" },
 ];
 

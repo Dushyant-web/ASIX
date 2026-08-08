@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../../lib/api.ts";
 import { useRunStream } from "../../lib/useRunStream.ts";
 import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, ReceiptStrip, Outcome, EventLog } from "../../components/RunView.tsx";
+import { ProjectPicker } from "../../components/ProjectPicker.tsx";
 import { isTerminal } from "../../lib/state-machine.ts";
 
 export default function AgentPage() {
@@ -10,6 +11,7 @@ export default function AgentPage() {
     "Should I merge this pull request? The change increases the request timeout from 10 seconds to 60 seconds.",
   );
   const [budget, setBudget] = useState("1.00");
+  const [projectId, setProjectId] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const view = useRunStream(runId);
@@ -21,7 +23,7 @@ export default function AgentPage() {
     setErr(null);
     setRunId(null);
     try {
-      const res = await api.runAgent(goal, Number(budget));
+      const res = await api.runAgent(goal, Number(budget), projectId || undefined);
       setRunId(res.runId);
     } catch (x) {
       setErr((x as { error?: { message?: string } })?.error?.message ?? "could not start the agent");
@@ -52,6 +54,10 @@ export default function AgentPage() {
           <label><b>Budget</b> — the most it may spend (USDC):{" "}
             <input type="number" step="0.01" min="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} required />
           </label>
+        </p>
+        <p>
+          <b>Project</b> (optional) — tag this run to a project:{" "}
+          <ProjectPicker value={projectId} onChange={setProjectId} />
         </p>
         <button type="submit" disabled={streaming}>{streaming ? "agent working…" : "Run agent"}</button>
       </form>

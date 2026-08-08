@@ -12,7 +12,7 @@ import { WORKFLOWS } from "./workflows/pr-review.ts";
 import { buildQuote, quoteToJson, persistQuote } from "./engine/quote.ts";
 import { subscribe, latestRunId } from "./bus.ts";
 import { execute } from "./engine/execute.ts";
-import { buildReceipt, listReceipts } from "./engine/receipt.ts";
+import { buildReceipt, listReceipts, listRefunds, usageSummary, createProject, listProjects, projectDetail } from "./engine/receipt.ts";
 import { signup, login } from "./engine/auth.ts";
 import { getStored, store } from "./middleware/idempotency.ts";
 import { allow } from "./middleware/ratelimit.ts";
@@ -104,7 +104,7 @@ export function createApp(cfg: Config) {
    * The one endpoint where money actually moves. Requires an Idempotency-Key.
    */
   app.post("/v1/workflow/execute", async (c) => {
-    let body: { quoteId?: string; chaos?: string; runId?: string };
+    let body: { quoteId?: string; chaos?: string; runId?: string; projectId?: string };
     try { body = await c.req.json(); } catch {
       return c.json({ error: { code: "INVALID_WORKFLOW", message: "body must be JSON" } }, 400);
     }
@@ -128,7 +128,7 @@ export function createApp(cfg: Config) {
 
     const runId = body.runId ?? `run_${crypto.randomUUID().slice(0, 12)}`;
     try {
-      const result = await execute(body.quoteId, cfg, runId, body.chaos);
+      const result = await execute(body.quoteId, cfg, runId, body.chaos, body.projectId);
       if (idemKey) await store(idemKey, runId, result, cfg);
       return c.json(result);
     } catch (e) {
@@ -166,7 +166,7 @@ export function createApp(cfg: Config) {
    * animate it live); the agent finishes in the background.
    */
   app.post("/v1/agent/run", async (c) => {
-    let body: { goal?: string; budgetUSDC?: number };
+    let body: { goal?: string; budgetUSDC?: number; projectId?: string };
     try { body = await c.req.json(); } catch {
       return c.json({ error: { code: "INVALID_INPUT", message: "body must be JSON" } }, 400);
     }
@@ -177,8 +177,29 @@ export function createApp(cfg: Config) {
       return c.json({ error: { code: "INVALID_INPUT", message: "budgetUSDC must be a positive number" } }, 400);
     }
     const runId = `run_${randomUUID().slice(0, 12)}`;
-    void runAgentInline(runId, goal, budgetUSDC, cfg); // fire-and-forget; streams on runId
+    void runAgentInline(runId, goal, budgetUSDC, cfg, body.projectId); // fire-and-forget; streams on runId
     return c.json({ runId });
+  });
+
+  /** GET /v1/refunds — every run that got money back on chain. */
+  app.get("/v1/refunds", async (c) => c.json({ refunds: await listRefunds(cfg.DATABASE_URL) }));
+
+  /** GET /v1/usage — spend totals, optionally for one agent (?agent=ADDR). */
+  app.get("/v1/usage", async (c) => c.json(await usageSummary(cfg.DATABASE_URL, c.req.query("agent") || undefined)));
+
+  /** Projects — group runs and see per-project spend. */
+  app.post("/v1/projects", async (c) => {
+    let body: { name?: string; agentAddress?: string };
+    try { body = await c.req.json(); } catch { return c.json({ error: { code: "INVALID_INPUT", message: "body must be JSON" } }, 400); }
+    const name = String(body.name ?? "").trim();
+    if (!name) return c.json({ error: { code: "INVALID_INPUT", message: "name is required" } }, 400);
+    return c.json(await createProject(cfg.DATABASE_URL, name, body.agentAddress));
+  });
+  app.get("/v1/projects", async (c) => c.json({ projects: await listProjects(cfg.DATABASE_URL) }));
+  app.get("/v1/projects/:id", async (c) => {
+    const detail = await projectDetail(cfg.DATABASE_URL, c.req.param("id"));
+    if (!detail) return c.json({ error: { code: "NOT_FOUND", message: "no such project" } }, 404);
+    return c.json(detail);
   });
 
   /** GET /v1/workflows — the workflows an agent can run (id + provider steps). */

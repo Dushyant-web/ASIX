@@ -145,6 +145,7 @@ function fmt(e) {
     case "policy.evaluated": return e.verdict === "PASS" ? { cls: "ok", msg: `<span class="g">PASS</span> <span class="dim">under every ceiling</span>` } : { cls: "err", msg: `<span class="r">FAIL — nothing will be signed</span>` };
     case "group.composed": return { cls: "", msg: `${e.groupSize} legs · <span class="dim">Algorand atomic group</span>` };
     case "group.simulated": return e.passed ? { cls: "ok", msg: `<span class="g">OK</span> <span class="dim">dry run ${e.durationMs || 0}ms — safe to submit</span>` } : { cls: "err", msg: `<span class="r">SIMULATION FAILED — not submitted</span>` };
+    case "settle.retry": return { cls: "warn", msg: `<span class="y">retry ${e.attempt}/${e.maxAttempts - 1}</span> <span class="dim">${esc(clip(e.message, 44))}</span>` };
     case "group.signed": return { cls: "", msg: `<span class="g">1 signature</span> · ${e.legCount} payments <span class="dim">· GoPlausible pays fees</span>` };
     case "group.settled": return { cls: "ok", msg: `<span class="g">round ${e.confirmedRound}</span> · ${(e.txids || []).length} txids · <span class="dim">group ${clip(e.groupId, 10)}…</span>` };
     case "step.started": return { cls: "", msg: `${esc(e.stepId)} <span class="dim">running…</span>` };
@@ -224,6 +225,11 @@ function apply(e) {
       caption(e.passed
         ? `<b>Simulated</b> on-chain first (free dry run). Passed → safe to submit.`
         : `<span class="warn">Simulation failed — <b>nothing submitted</b>, agent pays $0.</span>`);
+      break;
+    case "settle.retry":
+      setCard("group", "failed");
+      setRole("group", `retry ${e.attempt}/${e.maxAttempts - 1}`, "warn");
+      caption(`<span class="warn">Settlement failed — <b>auto-retrying</b> (attempt ${e.attempt} of ${e.maxAttempts - 1}). After ${e.maxAttempts - 1} it stops. No double-pay — same signed group.</span>`);
       break;
     case "group.signed":
       setCard("facil", "active"); pulse("facil", "group"); setRole("facil", "pays ALGO fees");
@@ -310,7 +316,7 @@ function follow(runId) {
   es.onerror = () => setConn("reconnecting");
 }
 function onEvent(ev) { let e; try { e = JSON.parse(ev.data); } catch { return; } term(e); apply(e); }
-const ALL_EVENTS = ["run.started","probe.sent","challenge.received","quote.ready","policy.evaluated","group.composed","group.simulated","group.signed","group.settled","step.started","step.delivered","step.failed","step.skipped","compensation.issued","node.state","run.completed","run.error"];
+const ALL_EVENTS = ["run.started","probe.sent","challenge.received","quote.ready","policy.evaluated","group.composed","group.simulated","settle.retry","group.signed","group.settled","step.started","step.delivered","step.failed","step.skipped","compensation.issued","node.state","run.completed","run.error"];
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (x) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[x]));
 
 // ── URL persistence + boot ──────────────────────────────────────────────────

@@ -179,6 +179,17 @@ export const zRunEvent = z.discriminatedUnion("type", [
     legCount: z.number().int(),
   }),
 
+  /** Settlement failed to submit and is being retried automatically. The agent
+   *  retries a failed payment up to a fixed number of times, then stops. */
+  z.object({
+    ...base,
+    type: z.literal("settle.retry"),
+    step: z.literal("settle"),
+    attempt: z.number().int(),
+    maxAttempts: z.number().int(),
+    message: z.string(),
+  }),
+
   /** ── Step 8: settlement ─────────────────────────────────────────────── */
   z.object({
     ...base,

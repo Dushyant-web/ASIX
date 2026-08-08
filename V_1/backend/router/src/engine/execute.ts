@@ -15,7 +15,7 @@ import { db } from "../db/client.ts";
 import { quotes, runs, legs as legsTable } from "../db/schema.ts";
 import { agentAccount } from "../chain/client.ts";
 import { preflight, composeGroup, type Leg } from "./compose.ts";
-import { simulate, settleDirect } from "./settle.ts";
+import { simulate, settleWithRetry } from "./settle.ts";
 import { runWorkflow } from "./run.ts";
 import { emit } from "../bus.ts";
 import { randomUUID } from "node:crypto";
@@ -36,7 +36,7 @@ export interface ExecuteResult {
 
 const explorer = (t: string) => `https://lora.algokit.io/testnet/transaction/${t}`;
 
-export async function execute(quoteId: string, cfg: Config, runId: string, chaosStep?: string): Promise<ExecuteResult> {
+export async function execute(quoteId: string, cfg: Config, runId: string, chaosStep?: string, projectId?: string): Promise<ExecuteResult> {
   const database = db(cfg.DATABASE_URL);
 
   // ── 1. Load the quote ──────────────────────────────────────────────────
@@ -97,7 +97,7 @@ export async function execute(quoteId: string, cfg: Config, runId: string, chaos
 
   // Open the run row now so a crash mid-settle is recoverable.
   const runRow = { id: runId, quoteId, workflow: row.workflow, agentAddress: row.agentAddress,
-    totalMicro: row.totalMicro, status: "PENDING" as const };
+    totalMicro: row.totalMicro, status: "PENDING" as const, ...(projectId ? { projectId } : {}) };
   await database.insert(runs).values(runRow);
 
   const { algo, agent } = agentAccount(cfg);
@@ -122,9 +122,11 @@ export async function execute(quoteId: string, cfg: Config, runId: string, chaos
     // ── 8. One signature (the agent signs its N legs as one group). ──────
     emit(runId, { type: "group.signed", step: "sign", signatureCount: 1, legCount: chainLegs.length });
 
-    // ── 9. Settle. All-or-nothing on chain. ──────────────────────────────
+    // ── 9. Settle. All-or-nothing on chain, with automatic retry. ─────────
     const settleStart = Date.now();
-    const result = await settleDirect(group);
+    const result = await settleWithRetry(group, (attempt, maxAttempts, message) => {
+      emit(runId, { type: "settle.retry", step: "settle", attempt, maxAttempts, message: message.split("\n")[0] });
+    });
     const txids = result.txids.map((txid, i) => ({
       stepId: chainLegs[i]!.stepId, provider: chainLegs[i]!.provider, payTo: chainLegs[i]!.payTo,
       txid, amountUSDC: formatUSDC(chainLegs[i]!.priceMicro), explorerUrl: explorer(txid),

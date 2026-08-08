@@ -33,7 +33,7 @@ export function useRunStream(runId: string | null): RunView {
     es.onmessage = onMsg;
     for (const t of [
       "run.started", "probe.sent", "challenge.received", "quote.ready",
-      "policy.evaluated", "group.composed", "group.simulated", "group.signed",
+      "policy.evaluated", "group.composed", "group.simulated", "settle.retry", "group.signed",
       "group.settled", "step.started", "step.delivered", "step.failed",
       "step.skipped", "compensation.issued", "node.state", "run.completed", "run.error",
     ]) es.addEventListener(t, onMsg as EventListener);

@@ -15,6 +15,13 @@
       "when": 1786179464423,
       "tag": "0001_brave_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786223221279,
+      "tag": "0002_omniscient_mantis",
+      "breakpoints": true
     }
   ]
 }

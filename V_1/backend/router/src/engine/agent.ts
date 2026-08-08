@@ -94,7 +94,7 @@ async function decide(cfg: Config, goal: string): Promise<Decision> {
  * Run the agent on a pre-minted runId. Fire-and-forget: it emits events on that
  * runId so the console (and the extension, via /v1/runs/latest) animate it live.
  */
-export async function runAgentInline(runId: string, goal: string, budgetUSDC: number, cfg: Config): Promise<void> {
+export async function runAgentInline(runId: string, goal: string, budgetUSDC: number, cfg: Config, projectId?: string): Promise<void> {
   try {
     const agentAddr = String(agentAccount(cfg).agent.addr);
     const decision = await decide(cfg, goal);
@@ -120,7 +120,7 @@ export async function runAgentInline(runId: string, goal: string, budgetUSDC: nu
     }
 
     // Within budget and policy — settle atomically via the normal execute path.
-    await execute(quote.quoteId, cfg, runId);
+    await execute(quote.quoteId, cfg, runId, undefined, projectId);
   } catch (e) {
     emit(runId, { type: "run.error", code: "INTERNAL", message: (e as Error).message, costedNothing: true });
     emit(runId, { type: "run.completed", status: "FAILED", receiptId: runId, totalUSDC: "0.00", refundedUSDC: "0.00", durationMs: 0 });

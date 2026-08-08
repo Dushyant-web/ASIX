@@ -166,6 +166,22 @@ importers:
         specifier: ^4.0.0
         version: 4.119.0(@cloudflare/workers-types@4.20260702.1)
 
+  backend/providers/toolbox:
+    dependencies:
+      '@axis/provider-kit':
+        specifier: workspace:*
+        version: link:../_kit
+      hono:
+        specifier: ^4.6.0
+        version: 4.13.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.119.0(@cloudflare/workers-types@4.20260702.1)
+
   backend/router:
     dependencies:
       '@axis/guard':

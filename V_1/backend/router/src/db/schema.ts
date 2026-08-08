@@ -47,6 +47,8 @@ export const runs = pgTable("runs", {
   agentAddress: text("agent_address").notNull(),
   groupId: text("group_id"),
   status: text("status").notNull().default("PENDING"),
+  /** Optional grouping — which project this run belongs to. */
+  projectId: text("project_id"),
   totalMicro: micro("total_micro").notNull(),
   refundedMicro: micro("refunded_micro").notNull().default(sql`0`),
   confirmedRound: bigint("confirmed_round", { mode: "bigint" }),
@@ -113,6 +115,17 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   runId: text("run_id").notNull(),
   response: jsonb("response").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A named grouping for runs — "project-wise payment". Every run may point at a
+ * project; the project view then aggregates its runs' spend and refunds.
+ */
+export const projects = pgTable("projects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  agentAddress: text("agent_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

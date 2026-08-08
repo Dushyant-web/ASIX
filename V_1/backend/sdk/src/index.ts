@@ -64,8 +64,15 @@ export interface Receipt {
 export interface PayOptions {
   /** Hard ceiling — pay() throws OVER_BUDGET before settling if the quote exceeds it. */
   budgetUSDC?: number;
+  /** Tag this run to a project (group runs + see per-project spend). */
+  projectId?: string;
   /** Demo only: force a named step to fail after payment, to exercise compensation. */
   chaosStep?: string;
+}
+
+export interface ProjectSummary {
+  id: string; name: string; createdAt: string;
+  runs: number; grossUSDC: string; refundedUSDC: string; netUSDC: string;
 }
 
 /** Typed error carrying the router's own error code. */
@@ -97,6 +104,10 @@ export interface AxisClient {
   getReceipt(runId: string): Promise<Receipt>;
   /** Subscribe to the live event stream for a run (needs global EventSource). */
   onEvents(runId: string, cb: (event: Record<string, unknown>) => void): () => void;
+  /** List projects with their rolled-up spend. */
+  listProjects(): Promise<ProjectSummary[]>;
+  /** Create a project to group runs under; returns it (pass its id as PayOptions.projectId). */
+  createProject(name: string): Promise<ProjectSummary>;
 }
 
 export function createAxisClient(options: AxisClientOptions): AxisClient {
@@ -144,6 +155,7 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
     }
     const body: Record<string, unknown> = { quoteId: q.quoteId, runId: q.runId };
     if (opts.chaosStep) body.chaos = opts.chaosStep;
+    if (opts.projectId) body.projectId = opts.projectId;
     const { status, json } = await req("/v1/workflow/execute", body);
     if (status >= 400 || json?.error) {
       throw new AxisPayError(json?.error?.code ?? "EXECUTE_FAILED", json?.error?.message ?? `execute failed (${status})`, json?.error?.costedNothing ?? false);
@@ -162,7 +174,18 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
     return () => es.close();
   }
 
-  return { listWorkflows, quote, pay, getReceipt, onEvents };
+  async function listProjects(): Promise<ProjectSummary[]> {
+    const res = await fetch(`${base}/v1/projects`, { signal: AbortSignal.timeout(timeout) });
+    if (!res.ok) throw new AxisPayError("PROJECTS_FAILED", `could not list projects (${res.status})`);
+    return ((await res.json()) as { projects?: ProjectSummary[] }).projects ?? [];
+  }
+  async function createProject(name: string): Promise<ProjectSummary> {
+    const { status, json } = await req("/v1/projects", { name });
+    if (status >= 400 || json?.error) throw new AxisPayError(json?.error?.code ?? "PROJECT_FAILED", json?.error?.message ?? "could not create project");
+    return json as ProjectSummary;
+  }
+
+  return { listWorkflows, quote, pay, getReceipt, onEvents, listProjects, createProject };
 }
 
 const EVENT_TYPES = [

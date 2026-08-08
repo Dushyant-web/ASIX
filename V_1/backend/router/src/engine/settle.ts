@@ -43,3 +43,33 @@ export async function settleDirect(group: ReturnType<any>): Promise<SettleResult
     throw new AxisError("SETTLEMENT_FAILED", (e as Error).message.split("\n")[0]);
   }
 }
+
+/** How many EXTRA attempts a failed settlement gets before we give up. */
+export const SETTLE_MAX_RETRIES = 2;
+
+/**
+ * Settle with automatic retry. A transient submit failure is retried up to
+ * SETTLE_MAX_RETRIES times (3 attempts total) with a short backoff; if it still
+ * fails, we STOP and surface SETTLEMENT_FAILED. `onRetry` reports each retry so
+ * the console + extension can show it. Because the group is atomic, a retry
+ * re-submits the SAME signed group — it never double-pays.
+ */
+export async function settleWithRetry(
+  group: ReturnType<any>,
+  onRetry?: (attempt: number, maxAttempts: number, message: string) => void,
+): Promise<SettleResult> {
+  const maxAttempts = SETTLE_MAX_RETRIES + 1;
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await settleDirect(group);
+    } catch (e) {
+      lastError = e as Error;
+      if (attempt < maxAttempts) {
+        onRetry?.(attempt, maxAttempts, lastError.message);
+        await new Promise((r) => setTimeout(r, 400 * attempt)); // 0.4s, 0.8s backoff
+      }
+    }
+  }
+  throw lastError ?? new AxisError("SETTLEMENT_FAILED", "settlement failed");
+}

@@ -93,12 +93,13 @@ server.registerTool(
       filePath: z.string().optional().describe("absolute path to a local file to review; its contents become the diff — use this instead of pasting a diff"),
       commitMessage: z.string().optional().describe("commit message for the review; defaults to 'Review <filename>' when a filePath is given"),
       budgetUSDC: z.number().positive().optional().describe("hard spending ceiling in USDC; the payment is refused before settling if the quote exceeds it"),
+      projectId: z.string().optional().describe("tag this run to a project (see list_projects / create_project)"),
       agentAddress: z.string().optional().describe("Algorand address paying; defaults to the server's configured agent"),
     },
   },
-  async ({ workflow, inputs, filePath, commitMessage, budgetUSDC, agentAddress }) => {
+  async ({ workflow, inputs, filePath, commitMessage, budgetUSDC, projectId, agentAddress }) => {
     try {
-      const r = await axis.pay(workflow, buildInputs(inputs as Record<string, unknown>, filePath, commitMessage), agentAddress ?? defaultAgent, { budgetUSDC });
+      const r = await axis.pay(workflow, buildInputs(inputs as Record<string, unknown>, filePath, commitMessage), agentAddress ?? defaultAgent, { budgetUSDC, projectId });
       const legs = r.legs.map((l) => `  - ${l.provider} [${l.status}] ${l.explorerUrl}`).join("\n");
       const results = r.legs
         .filter((l) => l.result != null)
@@ -113,6 +114,37 @@ server.registerTool(
     } catch (e) {
       const err = e as AxisPayError;
       return text(`No payment was made (${err.code ?? "ERROR"}): ${err.message}`, true);
+    }
+  },
+);
+
+server.registerTool(
+  "list_projects",
+  {
+    title: "List projects",
+    description: "List projects that group runs, each with its total spend and refunds. Use a project's id as `projectId` in pay_and_run to tag a run to it.",
+    inputSchema: {},
+  },
+  async () => {
+    const projects = await axis.listProjects();
+    if (projects.length === 0) return text("No projects yet. Use create_project to make one.");
+    return text("Projects:\n" + projects.map((p) => `• ${p.name} (${p.id}) — ${p.runs} runs, net $${p.netUSDC}${Number(p.refundedUSDC) > 0 ? `, refunded $${p.refundedUSDC}` : ""}`).join("\n"));
+  },
+);
+
+server.registerTool(
+  "create_project",
+  {
+    title: "Create a project",
+    description: "Create a named project to group runs under. Returns its id, which you pass as `projectId` to pay_and_run.",
+    inputSchema: { name: z.string().describe("the project name") },
+  },
+  async ({ name }) => {
+    try {
+      const p = await axis.createProject(name);
+      return text(`Created project "${p.name}" — id ${p.id}. Pass projectId: "${p.id}" to pay_and_run to tag runs to it.`);
+    } catch (e) {
+      return text(`Could not create project: ${(e as AxisPayError).message}`, true);
     }
   },
 );

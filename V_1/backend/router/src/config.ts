@@ -41,6 +41,9 @@ const schema = z.object({
   PROVIDER_GUARDRAIL_URL: z.string().url(),
   PROVIDER_ROASTER_URL: z.string().url(),
   PROVIDER_BUGSUM_URL: z.string().url(),
+  // The toolbox Worker — 5 extra services. Optional: workflows that use it just
+  // fail to quote if it's unset, without blocking the core providers.
+  PROVIDER_TOOLBOX_URL: z.string().url().optional(),
 
   AGENT_MNEMONIC: z.string().min(1),
   QUOTE_SIGNING_KEY: z.string().min(32, "use at least 32 chars of entropy"),

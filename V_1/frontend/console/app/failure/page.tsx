@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { useRunStream, useMockRun } from "../../lib/useRunStream.ts";
 import { ProtocolRail, WorkflowGraph, GroupPanel, ReceiptStrip, Outcome, EventLog } from "../../components/RunView.tsx";
+import { ProjectPicker } from "../../components/ProjectPicker.tsx";
 import { isTerminal, refundedNodes } from "../../lib/state-machine.ts";
 
 const DEMO_AGENT = process.env.NEXT_PUBLIC_DEMO_AGENT ?? "NG5SZZ3U6XOB4L5N4CPZ7SLIZRDIEK2CM4XMB5WDPLAWSCIRCIJTTKYOPQ";
@@ -14,6 +15,7 @@ export default function Failure() {
   const [useMock, setUseMock] = useState(false);
   const [busy, setBusy] = useState(false);
   const [chaos, setChaos] = useState("roast");
+  const [projectId, setProjectId] = useState("");
   const live = useRunStream(runId);
   const mock = useMockRun("partial", mockTick);
   const view = useMock ? mock : live;
@@ -23,10 +25,10 @@ export default function Failure() {
     try {
       const quote = await api.quote(DEMO_AGENT, { diff: "x", commitMessage: "y" });
       setUseMock(false); setRunId(quote.runId);
-      await api.executeChaos(quote.quoteId, quote.runId, chaos);
+      await api.executeChaos(quote.quoteId, quote.runId, chaos, projectId || undefined);
     } catch { setUseMock(true); setMockTick((t) => t + 1); }
     finally { setBusy(false); }
-  }, [chaos]);
+  }, [chaos, projectId]);
 
   const refunds = refundedNodes(view);
   return (
@@ -41,6 +43,7 @@ export default function Failure() {
           </label>
         ))}
       </div>
+      <p>Project (optional): <ProjectPicker value={projectId} onChange={setProjectId} /></p>
       <button onClick={run} disabled={busy}>{busy ? "Running..." : `Run with ${chaos} failing`}</button>
       {useMock ? <span> demo mode (router offline)</span> : null}
       <h3>What happens, in order</h3>

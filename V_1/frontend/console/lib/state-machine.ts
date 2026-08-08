@@ -256,6 +256,12 @@ export function applyEvent(prev: RunView, e: RunEvent): RunView {
         ),
       };
 
+    case "settle.retry":
+      return {
+        ...s,
+        protocol: markStep(s.protocol, "settle", "active", `retry ${e.attempt}/${e.maxAttempts - 1} — ${e.message}`),
+      };
+
     case "group.signed":
       return {
         ...s,

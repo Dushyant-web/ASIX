@@ -3,11 +3,19 @@
 Copy-paste these. Two places you can use AXIS: the **Autonomous agent** page in
 the console, and **Claude Desktop** (via the axis-pay MCP tool).
 
-> **What AXIS can actually do right now:** one thing — **review a code change /
-> pull request** (it runs 4 paid AI services: explain the diff, safety check,
-> commit critique, bug summary). Anything else is politely refused and you pay
-> **nothing**. That refusal is a feature: the agent only spends when it can
-> really deliver.
+> **What AXIS can do now — 9 services (workflows):**
+> - `pr-review` — full code review (4 providers: diff, safety, commit critique, bug summary)
+> - `security-scan` — just the safety check on code/text
+> - `bug-hunt` — explain a change, then find bugs in it
+> - `commit-polish` — improve a commit message
+> - `generate-code` — write code for a task
+> - `debug-error` — diagnose an error and propose a fix
+> - `write-tests` — write unit tests for code
+> - `translate-text` — translate text to a language
+> - `summarize-text` — summarise a long piece of text
+>
+> The autonomous agent picks the right one from your goal; if none fits, it
+> refuses and pays **nothing**. That refusal is a feature.
 
 ---
 
@@ -22,12 +30,17 @@ Type one of these in the **Goal** box, set a **Budget**, click **Run agent**.
 - `Review this diff: renamed getUser() to fetchUser() everywhere in the app.`
 - `Is this change safe to ship? It lets users upload profile pictures.`
 
-### 🛑 These get REFUSED (you pay $0) — the agent has no service for them
-- `Create me an image of a cat.`
-- `Write me a poem about the ocean.`
-- `What's the weather today?`
+### ✅ New services also work — try these
+- `Write a Python function that reverses a string.`  (generate-code)
+- `Debug this error: TypeError: cannot read property 'x' of undefined.`  (debug-error)
+- `Write unit tests for this function: function add(a,b){return a+b}.`  (write-tests)
+- `Translate "good morning, how are you?" to Spanish.`  (translate-text)
+- `Summarise this: <paste a long paragraph>.`  (summarize-text)
+
+### 🛑 These still get REFUSED (you pay $0) — no service for them
+- `Create me an image of a cat.`  (no image model — text services only)
 - `Book me a flight to Delhi.`
-- `Summarise this news article.`
+- `What's the weather today?`
 
 ### 💰 See the budget in action (use any working prompt above)
 - Budget **$1.00** → it pays (~$0.14) and delivers.
