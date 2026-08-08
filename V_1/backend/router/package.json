@@ -7,13 +7,18 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@axis/shared": "workspace:*",
     "drizzle-orm": "^0.38.0",
     "postgres": "^3.4.5",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.30.0",

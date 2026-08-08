@@ -6,7 +6,13 @@
  * demo, as a failed transaction, in front of judges.
  */
 import { z } from "zod";
+import { config as loadEnv } from "dotenv";
 import { ALGORAND_TESTNET_CAIP2, USDC_TESTNET_ASA_ID } from "@axis/shared";
+
+// Load the repo .env and the gitignored accounts file (payTo + mnemonic).
+// Values with characters like & would break shell sourcing; dotenv handles them.
+loadEnv({ path: "../../.env.accounts", quiet: true });
+loadEnv({ path: "../../.env", quiet: true });
 
 const zMicro = z
   .string()
