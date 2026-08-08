@@ -20,13 +20,12 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "backend/**/*.ts",
-    "frontend/**/*.ts",
-    "frontend/**/*.tsx"
+    "backend/**/*.ts"
   ],
   "exclude": [
     "**/node_modules",
     "**/dist",
-    "**/.next"
+    "**/.next",
+    "frontend"
   ]
 }
