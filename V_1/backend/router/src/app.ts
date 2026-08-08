@@ -64,7 +64,11 @@ export function createApp(cfg: Config) {
     try {
       const quote = await buildQuote(workflow, body.agentAddress, body.inputs ?? {}, cfg, runId);
       await persistQuote(quote, body.inputs ?? {}, cfg.DATABASE_URL);
-      return c.json({ runId, ...quoteToJson(quote) });
+      // A policy FAIL is returned with the quote (402) so the console can show
+      // exactly which rule blocked it — but it is a hard block: execute will
+      // refuse a quote whose stored verdict is FAIL.
+      const status = quote.policy.verdict === "FAIL" ? 402 : 200;
+      return c.json({ runId, ...quoteToJson(quote) }, status);
     } catch (e) {
       if (e instanceof AxisError) {
         return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 502);

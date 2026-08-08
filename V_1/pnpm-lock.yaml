@@ -37,6 +37,12 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  backend/guard:
+    dependencies:
+      '@axis/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   backend/providers/_bundle-check:
     dependencies:
       '@algorandfoundation/algokit-utils':
@@ -144,6 +150,9 @@ importers:
 
   backend/router:
     dependencies:
+      '@axis/guard':
+        specifier: workspace:*
+        version: link:../guard
       '@axis/shared':
         specifier: workspace:*
         version: link:../shared

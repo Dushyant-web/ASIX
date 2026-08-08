@@ -18,6 +18,8 @@ import {
 import type { Config } from "../config.ts";
 import type { WorkflowDef } from "../workflows/pr-review.ts";
 import { emit } from "../bus.ts";
+import { evaluatePolicy } from "./policy.ts";
+import type { PolicyVerdict } from "@axis/guard";
 
 const PROBE_TIMEOUT_MS = 5_000;
 
@@ -41,6 +43,7 @@ export interface Quote {
   routingFeeMicro: MicroUSDC;
   totalMicro: MicroUSDC;
   expiresAt: string;
+  policy: PolicyVerdict;
   signature: string;
 }
 
@@ -156,6 +159,7 @@ export async function buildQuote(
   inputs: Record<string, unknown>,
   cfg: Config,
   runId: string,
+  clientMaxMicro?: bigint,
 ): Promise<Quote> {
   // Resolve the DAG first — a bad workflow fails before any network call.
   const dag = resolveDag(workflow.steps);
@@ -200,6 +204,9 @@ export async function buildQuote(
   const routingFeeMicro = microUSDC(ROUTING_FEE_MICRO);
   const totalMicro = sumUSDC([subtotalMicro, routingFeeMicro]);
 
+  // ── The Spend Policy Guard — a FAIL here means nothing is ever signed. ──
+  const policy = await evaluatePolicy(agentAddress, legs, totalMicro, clientMaxMicro, cfg, runId);
+
   const quoteId = `qt_${randomUUID().slice(0, 12)}`;
   const expiresAt = new Date(Date.now() + QUOTE_TTL_SECONDS * 1000).toISOString();
 
@@ -214,6 +221,7 @@ export async function buildQuote(
     routingFeeMicro,
     totalMicro,
     expiresAt,
+    policy,
   };
   const signature = sign(canonicalQuoteBody(unsigned), cfg.QUOTE_SIGNING_KEY);
 
@@ -251,6 +259,7 @@ export function quoteToJson(q: Quote) {
     routingFeeUSDC: formatUSDC(q.routingFeeMicro),
     totalUSDC: formatUSDC(q.totalMicro),
     expiresAt: q.expiresAt,
+    policy: q.policy,
     signature: q.signature,
   };
 }
@@ -282,7 +291,7 @@ export async function persistQuote(
     subtotalMicro: q.subtotalMicro,
     routingFeeMicro: q.routingFeeMicro,
     totalMicro: q.totalMicro,
-    policyVerdict: { verdict: "PASS", checks: [], violations: [] }, // real guard lands in Phase 6
+    policyVerdict: q.policy,
     signature: q.signature,
     status: "OPEN",
     expiresAt: new Date(q.expiresAt),

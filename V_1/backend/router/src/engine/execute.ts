@@ -50,6 +50,11 @@ export async function execute(quoteId: string, cfg: Config, runId: string, chaos
   if (new Date(row.expiresAt).getTime() < Date.now()) {
     throw new AxisError("QUOTE_EXPIRED", `quote ${quoteId} expired at ${row.expiresAt.toISOString()}`);
   }
+  const verdict = row.policyVerdict as { verdict?: string; violations?: string[] };
+  if (verdict?.verdict === "FAIL") {
+    throw new AxisError("POLICY_VIOLATION",
+      verdict.violations?.[0] ?? "spend policy rejected this workflow", { violations: verdict.violations });
+  }
 
   // ── 3. Verify the router's own signature (tamper guard) ────────────────
   const stored: StoredLeg[] = row.legs as StoredLeg[];
@@ -67,6 +72,7 @@ export async function execute(quoteId: string, cfg: Config, runId: string, chaos
     routingFeeMicro: microUSDC(row.routingFeeMicro),
     totalMicro: microUSDC(row.totalMicro),
     expiresAt: row.expiresAt.toISOString(),
+    policy: row.policyVerdict as never,
     signature: row.signature,
   };
   if (!verifyQuoteSignature(reconstructed, cfg.QUOTE_SIGNING_KEY)) {

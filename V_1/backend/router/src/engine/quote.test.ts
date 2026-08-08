@@ -14,6 +14,7 @@ function makeQuote(): Quote {
     legs: [{ stepId: "a", provider: "p", payTo: "B".repeat(58), priceMicro: microUSDC(30000n), asset: "10458941", challenge: {} }],
     subtotalMicro: microUSDC(30000n), routingFeeMicro: microUSDC(10000n), totalMicro: microUSDC(40000n),
     expiresAt: "2026-08-08T00:00:00.000Z",
+    policy: { verdict: "PASS", checks: [], violations: [] },
   };
   const signature = createHmac("sha256", KEY).update(canonicalQuoteBody(unsigned)).digest("base64");
   return { ...unsigned, signature };
