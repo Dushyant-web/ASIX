@@ -160,6 +160,14 @@ export async function buildQuote(
   // Resolve the DAG first — a bad workflow fails before any network call.
   const dag = resolveDag(workflow.steps);
 
+  // Announce the run up front so the console can draw the whole graph grey
+  // before any probe returns.
+  emit(runId, {
+    type: "run.started", workflow: workflow.id, agentAddress, network: cfg.NETWORK,
+    batches: dag.batches, edges: dag.edges,
+    nodes: workflow.steps.map((s) => ({ stepId: s.id, provider: s.provider })),
+  });
+
   // Every required input must be present up front, so a step can never be
   // priced and then handed a missing value at execute time.
   for (const step of workflow.steps) {

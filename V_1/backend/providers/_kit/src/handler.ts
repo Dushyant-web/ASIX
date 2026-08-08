@@ -21,7 +21,14 @@
 import type { Context } from "hono";
 import { z } from "zod";
 import { challenge402, verifyPayment, type ProviderConfig, type ProviderEnv } from "./x402.ts";
+
+/** price in microUSDC from the provider config (e.g. "0.03" -> 30000). */
+function buildChallengeAmount(cfg: ProviderConfig): string {
+  const [w = "0", f = ""] = cfg.priceUSDC.split(".");
+  return (BigInt(w) * 1_000_000n + BigInt(f.padEnd(6, "0") || "0")).toString();
+}
 import { getClaimStore, claimKey, paymentIdentity } from "./claims.ts";
+import { isOnChainProof, verifyOnChain } from "./onchain.ts";
 
 /** Cap request size so a caller cannot run up our token bill on one call. */
 const MAX_INPUT_CHARS = 24_000;
@@ -115,17 +122,29 @@ export async function paidHandler<I, O>(
       "this payment has already been redeemed for this resource");
   }
 
-  // ── 6. Verify with the facilitator. Still no model call. ──────────────
-  const payment = await verifyPayment(header, cfg, env, c.req.url);
-  if (!payment.ok) {
-    return fail(c, 402, "PAYMENT_INVALID", payment.error ?? "payment rejected");
+  // ── 6. Verify payment. Still no model call. ───────────────────────────
+  // Aggregator model: the router already settled the atomic group, so the
+  // proof is a settled txid we confirm on-chain. Fall back to the facilitator
+  // for the classic single-payment (pre-settle) flow.
+  let paymentTxid: string | null = null;
+  if (isOnChainProof(payload)) {
+    const price = BigInt((buildChallengeAmount(cfg)));
+    const asset = String((env.USDC_ASA_ID ?? "10458941"));
+    const payTo = String(env[cfg.payToEnvKey]);
+    const chk = await verifyOnChain(payload.txid, { payTo, minAmount: price, asset });
+    if (!chk.ok) return fail(c, 402, "PAYMENT_INVALID", chk.error ?? "on-chain verification failed");
+    paymentTxid = payload.txid;
+  } else {
+    const payment = await verifyPayment(header, cfg, env, c.req.url);
+    if (!payment.ok) return fail(c, 402, "PAYMENT_INVALID", payment.error ?? "payment rejected");
+    paymentTxid = payment.txid ?? null;
   }
 
   // ── 7. Paid, bound, fresh and single-use. Now do the work. ────────────
   const started = Date.now();
   try {
     const result = await run(parsed.data, env);
-    c.header("X-PAYMENT-RESPONSE", btoa(JSON.stringify({ txid: payment.txid ?? null })));
+    c.header("X-PAYMENT-RESPONSE", btoa(JSON.stringify({ txid: paymentTxid })));
     return c.json({ provider: cfg.name, result, latencyMs: Date.now() - started });
   } catch (e) {
     // Payment settled but we failed to deliver. 502 + paid:true is the signal

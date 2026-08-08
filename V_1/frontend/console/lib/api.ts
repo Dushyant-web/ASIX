@@ -47,8 +47,8 @@ export const api = {
   quote: (agentAddress: string, inputs: Record<string, unknown>, workflow = "pr-review") =>
     post<QuoteResponse>("/v1/workflow/quote", { workflow, agentAddress, inputs }),
 
-  execute: (quoteId: string) =>
-    post<ExecuteResponse>("/v1/workflow/execute", { quoteId }),
+  execute: (quoteId: string, runId?: string) =>
+    post<ExecuteResponse>("/v1/workflow/execute", { quoteId, runId }),
 
   /** SSE endpoint URL for a run — consumed by useRunStream. */
   eventsUrl: (runId: string) => `${BASE}/v1/runs/${runId}/events`,

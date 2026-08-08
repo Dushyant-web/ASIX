@@ -5,16 +5,21 @@
  * stream that drives the console + health. Execute/receipt land in Phase 4/5.
  */
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { AxisError } from "@axis/shared";
 import type { Config } from "./config.ts";
 import { WORKFLOWS } from "./workflows/pr-review.ts";
 import { buildQuote, quoteToJson, persistQuote } from "./engine/quote.ts";
 import { subscribe } from "./bus.ts";
 import { execute } from "./engine/execute.ts";
+import { buildReceipt } from "./engine/receipt.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
   const app = new Hono();
+
+  // The console (browser) calls quote/execute and opens the SSE stream.
+  app.use("*", cors({ origin: "*", allowHeaders: ["content-type", "idempotency-key"], allowMethods: ["GET", "POST", "OPTIONS"] }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
@@ -73,21 +78,31 @@ export function createApp(cfg: Config) {
    * The one endpoint where money actually moves. Requires an Idempotency-Key.
    */
   app.post("/v1/workflow/execute", async (c) => {
-    let body: { quoteId?: string };
+    let body: { quoteId?: string; chaos?: string; runId?: string };
     try { body = await c.req.json(); } catch {
       return c.json({ error: { code: "INVALID_WORKFLOW", message: "body must be JSON" } }, 400);
     }
     if (!body.quoteId) {
       return c.json({ error: { code: "INVALID_WORKFLOW", message: "quoteId required" } }, 400);
     }
-    const runId = `run_${crypto.randomUUID().slice(0, 12)}`;
+    // Reuse the runId minted at quote time so the console — already subscribed
+    // to that run's SSE stream — sees the settle and execute events too. Only
+    // mint a fresh one if the client did not carry it through.
+    const runId = body.runId ?? `run_${crypto.randomUUID().slice(0, 12)}`;
     try {
-      const result = await execute(body.quoteId, cfg, runId);
+      const result = await execute(body.quoteId, cfg, runId, body.chaos);
       return c.json(result);
     } catch (e) {
       if (e instanceof AxisError) return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 409 | 500);
       return c.json({ runId, error: { code: "INTERNAL", message: (e as Error).message } }, 500);
     }
+  });
+
+  /** GET /v1/receipt/:id — the unified receipt. Renders standalone. */
+  app.get("/v1/receipt/:id", async (c) => {
+    const receipt = await buildReceipt(c.req.param("id"), cfg.DATABASE_URL);
+    if (!receipt) return c.json({ error: { code: "NOT_FOUND", message: "no such receipt" } }, 404);
+    return c.json(receipt);
   });
 
   /** GET /v1/runs/:id/events — the live SSE stream the console renders. */

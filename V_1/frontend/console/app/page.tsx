@@ -29,7 +29,7 @@ export default function Home() {
       const quote = await api.quote(DEMO_AGENT, { diff: "- timeout: 10\n+ timeout: 60", commitMessage: "fix stuff" });
       setUseMock(false);
       setRunId(quote.runId);
-      await api.execute(quote.quoteId); // fires settlement; events stream in
+      await api.execute(quote.quoteId, quote.runId); // same runId → one stream
     } catch {
       // Router unreachable — show the mock so the demo never dies.
       setUseMock(true);

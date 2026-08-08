@@ -16,6 +16,7 @@ import { quotes, runs, legs as legsTable } from "../db/schema.ts";
 import { agentAccount } from "../chain/client.ts";
 import { preflight, composeGroup, type Leg } from "./compose.ts";
 import { simulate, settleDirect } from "./settle.ts";
+import { runWorkflow } from "./run.ts";
 import { emit } from "../bus.ts";
 import { randomUUID } from "node:crypto";
 
@@ -29,11 +30,13 @@ export interface ExecuteResult {
   groupId: string;
   confirmedRound: number;
   txids: { stepId: string; provider: string; payTo: string; txid: string; amountUSDC: string; explorerUrl: string }[];
+  status?: "SETTLED" | "PARTIAL";
+  refundedUSDC?: string;
 }
 
 const explorer = (t: string) => `https://lora.algokit.io/testnet/transaction/${t}`;
 
-export async function execute(quoteId: string, cfg: Config, runId: string): Promise<ExecuteResult> {
+export async function execute(quoteId: string, cfg: Config, runId: string, chaosStep?: string): Promise<ExecuteResult> {
   const database = db(cfg.DATABASE_URL);
 
   // ── 1. Load the quote ──────────────────────────────────────────────────
@@ -134,7 +137,10 @@ export async function execute(quoteId: string, cfg: Config, runId: string): Prom
       payTo: l.payTo, priceMicro: l.priceMicro, groupIndex: i, txid: result.txids[i], status: "PAID" as const,
     })));
 
-    return { runId, groupId: result.groupId, confirmedRound: result.confirmedRound, txids };
+    // ── 11. Phase 5: paid retries, compensation, receipt ─────────────────
+    const settled = { runId, groupId: result.groupId, confirmedRound: result.confirmedRound, txids };
+    const final = await runWorkflow(settled, cfg, (row.inputs ?? {}) as Record<string, unknown>, chaosStep);
+    return { ...settled, status: final.status, refundedUSDC: formatUSDC(final.refundedMicro) };
   } catch (e) {
     const err = e instanceof AxisError ? e : new AxisError("INTERNAL", (e as Error).message);
     await database.update(runs).set({ status: "FAILED", error: err.toJSON().error, finishedAt: new Date() }).where(eq(runs.id, runId));
