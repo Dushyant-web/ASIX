@@ -42,3 +42,7 @@ pnpm-debug.log*
 # wrangler local secrets
 **/.dev.vars
 .DS_Store
+
+# next build output
+.next/
+frontend/console/.next/

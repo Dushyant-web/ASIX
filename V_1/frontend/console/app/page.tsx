@@ -1,107 +1,68 @@
 "use client";
-
 /**
- * Phase F1 scaffold — proves the state machine drives a real view.
- *
- * This runs against `mockRun()`, so it works with NO backend. Phase F2 replaces
- * the markup below with real components; the wiring here does not change.
- * Going live later is one swap: `mockRun()` -> `useRunStream(runId)`.
+ * The demo screen. One button runs the real workflow through the live router.
+ * Falls back to the mock stream if the router is unreachable, so the UI is
+ * always demonstrable.
  */
 import { useCallback, useState } from "react";
-import { mockRun, type RunEvent } from "@axis/shared";
-import {
-  applyEvent, initialRunView, outcomeHeadline, type RunView,
-} from "../lib/state-machine.ts";
+import { api } from "../lib/api.ts";
+import { useRunStream, useMockRun } from "../lib/useRunStream.ts";
+import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, Outcome, EventLog } from "../components/RunView.tsx";
+import { isTerminal } from "../lib/state-machine.ts";
+
+// A funded demo agent address can be injected at build time; the router also
+// has its own agent, so this is only the "who is asking" field.
+const DEMO_AGENT = process.env.NEXT_PUBLIC_DEMO_AGENT ?? "NG5SZZ3U6XOB4L5N4CPZ7SLIZRDIEK2CM4XMB5WDPLAWSCIRCIJTTKYOPQ";
 
 export default function Home() {
-  const [view, setView] = useState<RunView>(initialRunView);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [mockTick, setMockTick] = useState(0);
+  const [useMock, setUseMock] = useState(false);
   const [busy, setBusy] = useState(false);
+  const live = useRunStream(runId);
+  const mock = useMockRun("partial", mockTick);
+  const view = useMock ? mock : live;
 
   const run = useCallback(async () => {
     setBusy(true);
-    setView(initialRunView());
-    for await (const e of mockRun({ scenario: "partial", speed: 2 })) {
-      setView((v) => applyEvent(v, e as RunEvent));
+    try {
+      const quote = await api.quote(DEMO_AGENT, { diff: "- timeout: 10\n+ timeout: 60", commitMessage: "fix stuff" });
+      setUseMock(false);
+      setRunId(quote.runId);
+      await api.execute(quote.quoteId); // fires settlement; events stream in
+    } catch {
+      // Router unreachable — show the mock so the demo never dies.
+      setUseMock(true);
+      setMockTick((t) => t + 1);
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }, []);
 
   return (
-    <main className="mx-auto max-w-5xl p-8 font-mono">
-      <h1 className="text-3xl font-bold">AXIS</h1>
-      <p className="mt-1 text-neutral-400">
-        N paid API calls · one atomic payment · one receipt
-      </p>
+    <main className="mx-auto max-w-4xl space-y-5 p-8 font-mono">
+      <header>
+        <h1 className="text-3xl font-bold">AXIS</h1>
+        <p className="text-neutral-400">N paid API calls · one atomic payment · one receipt</p>
+      </header>
 
-      <button
-        onClick={run}
-        disabled={busy}
-        className="mt-6 rounded bg-emerald-600 px-5 py-3 font-semibold disabled:opacity-40"
-      >
+      <button onClick={run} disabled={busy}
+        className="rounded bg-emerald-600 px-5 py-3 font-semibold disabled:opacity-40">
         {busy ? "Running…" : "Should I merge this PR?"}
       </button>
+      {useMock && <span className="ml-3 text-xs text-amber-500">demo mode (router offline)</span>}
 
-      <p className="mt-6 text-lg">{outcomeHeadline(view)}</p>
+      <Outcome view={view} />
+      <ProtocolRail view={view} />
+      <PolicyPanel view={view} />
+      <WorkflowGraph view={view} />
+      <GroupPanel view={view} />
+      <EventLog view={view} />
 
-      {/* Protocol rail — the brief's own 8 steps, ticking off live. */}
-      <ol className="mt-6 grid grid-cols-4 gap-2 text-xs">
-        {view.protocol.map((p) => (
-          <li
-            key={p.step}
-            className={
-              "rounded border p-2 " +
-              (p.status === "done" ? "border-emerald-600 text-emerald-400"
-                : p.status === "active" ? "border-amber-500 text-amber-400"
-                : p.status === "failed" ? "border-red-600 text-red-400"
-                : "border-neutral-800 text-neutral-600")
-            }
-          >
-            {p.step}
-            {p.detail && <div className="mt-1 text-[10px] opacity-70">{p.detail}</div>}
-          </li>
-        ))}
-      </ol>
-
-      {/* Nodes, grouped by DAG batch — batch 0 runs in parallel. */}
-      {view.batches.map((batch, i) => (
-        <div key={i} className="mt-4">
-          <div className="text-xs text-neutral-500">
-            batch {i} {batch.length > 1 && "· parallel"}
-          </div>
-          <div className="mt-1 grid gap-2 sm:grid-cols-3">
-            {batch.map((id) => {
-              const n = view.nodes[id];
-              if (!n) return null;
-              return (
-                <div key={id} className="rounded border border-neutral-800 p-3 text-xs">
-                  <div className="font-semibold">{n.provider}</div>
-                  <div className="text-neutral-500">{n.state}</div>
-                  {n.priceUSDC && <div className="mt-1">${n.priceUSDC}</div>}
-                  {n.explorerUrl && (
-                    <a href={n.explorerUrl} target="_blank" rel="noreferrer"
-                       className="mt-1 block text-emerald-400 underline">
-                      txid ↗
-                    </a>
-                  )}
-                  {n.compensationExplorerUrl && (
-                    <a href={n.compensationExplorerUrl} target="_blank" rel="noreferrer"
-                       className="mt-1 block text-amber-400 underline">
-                      refunded ↗
-                    </a>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      {view.group.groupId && (
-        <p className="mt-6 break-all text-xs text-neutral-400">
-          group <span className="text-neutral-200">{view.group.groupId}</span>
-          {" · "}round {view.group.confirmedRound}
-          {" · "}{view.group.signatureCount} signature
-        </p>
+      {isTerminal(view) && view.receiptId && (
+        <a href={`/receipts/${view.receiptId}`} className="inline-block text-sm text-sky-400 underline">
+          view unified receipt →
+        </a>
       )}
     </main>
   );
