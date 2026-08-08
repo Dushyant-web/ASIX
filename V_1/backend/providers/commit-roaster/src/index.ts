@@ -14,14 +14,14 @@ const Input = z.object({ message: z.string().min(1, "message is required") });
 
 const Output = z.object({
   critique: z.string(),
-  rewrites: z.array(z.string()).min(1),
+  rewrites: z.array(z.string()).min(1).max(3),
   score: z.number().min(0).max(10),
 });
 
 const SYSTEM = `You critique git commit messages against Conventional Commits and
 general clarity. Be sharp but useful, never cruel. Return JSON:
 { "critique": string, "rewrites": string[2..3], "score": 0..10 }.
-Rewrites must be complete, usable commit subject lines.`;
+Give AT MOST 3 rewrites, each a complete usable commit subject line.`;
 
 const app = new Hono();
 app.get("/health", (c) => c.json({ provider: cfg.name, priceUSDC: cfg.priceUSDC, payTo: (c.env as ProviderEnv)[cfg.payToEnvKey] ?? null }));
@@ -29,7 +29,7 @@ app.post("/commit/roast", (c) =>
   paidHandler(c, {
     cfg,
     input: Input,
-    run: ({ message }, env) => jsonComplete(env, Output, SYSTEM, message, 600),
+    run: ({ message }, env) => jsonComplete(env, Output, SYSTEM, message, 350),
   }),
 );
 export default app;
