@@ -1,67 +1,56 @@
 "use client";
 /**
- * The shared run visualization. Phase F1 owns this SHAPE and STATE; Phase F2
- * will replace the styling and add motion. Every value here comes from the
- * state machine — this component computes nothing.
+ * Monochrome run visualization. UX structure + ALL the data, no colors.
+ * State is shown by text labels and border weight (data-* attrs), never hue —
+ * Phase F2 (the team) maps that to a real palette.
+ * Every value comes from the state machine; these components compute nothing.
  */
 import type { RunView } from "../lib/state-machine.ts";
 import { outcomeHeadline, settledTxids, refundedNodes } from "../lib/state-machine.ts";
 
 export function ProtocolRail({ view }: { view: RunView }) {
   return (
-    <ol className="grid grid-cols-4 gap-2 text-xs sm:grid-cols-8">
-      {view.protocol.map((p) => (
-        <li key={p.step}
-          className={"rounded border p-2 text-center " +
-            (p.status === "done" ? "border-emerald-600 text-emerald-400"
-              : p.status === "active" ? "border-amber-500 text-amber-400 animate-pulse"
-              : p.status === "failed" ? "border-red-600 text-red-400"
-              : "border-neutral-800 text-neutral-600")}>
+    <ol style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, listStyle: "none", padding: 0, margin: 0 }}>
+      {view.protocol.map((p, i) => (
+        <li key={p.step} className="node"
+          data-active={p.status === "active"} data-done={p.status === "done"} data-fail={p.status === "failed"}
+          style={{ textAlign: "center", padding: 8, fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 9 }}>{i + 1}</div>
           <div>{p.step}</div>
-          {p.detail && <div className="mt-1 text-[10px] opacity-70 truncate">{p.detail}</div>}
+          {p.detail && <div className="muted" style={{ fontSize: 9, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>{p.detail}</div>}
         </li>
       ))}
     </ol>
   );
 }
 
-const STATE_COLOR: Record<string, string> = {
-  idle: "border-neutral-800 text-neutral-500",
-  probing: "border-amber-500 text-amber-400 animate-pulse",
-  quoted: "border-sky-600 text-sky-300",
-  paying: "border-amber-500 text-amber-400 animate-pulse",
-  paid: "border-emerald-700 text-emerald-400",
-  running: "border-amber-500 text-amber-400 animate-pulse",
-  delivered: "border-emerald-600 text-emerald-300",
-  failed: "border-red-600 text-red-400",
-  compensating: "border-orange-500 text-orange-400 animate-pulse",
-  refunded: "border-orange-700 text-orange-400",
-  blocked: "border-red-700 text-red-500",
-  skipped: "border-neutral-800 text-neutral-600 opacity-50",
-};
-
 export function WorkflowGraph({ view }: { view: RunView }) {
   return (
-    <div className="space-y-3">
+    <div style={{ display: "grid", gap: 12 }}>
       {view.batches.map((batch, i) => (
         <div key={i}>
-          <div className="mb-1 text-xs text-neutral-500">batch {i}{batch.length > 1 && " · parallel"}</div>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            batch {i}{batch.length > 1 ? " · runs in parallel" : ""}
+          </div>
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: `repeat(${Math.min(batch.length, 3)}, 1fr)` }}>
             {batch.map((id) => {
               const n = view.nodes[id];
               if (!n) return null;
+              const active = ["probing", "paying", "running", "compensating"].includes(n.state);
+              const done = ["paid", "delivered"].includes(n.state);
+              const fail = ["failed", "refunded", "blocked", "skipped"].includes(n.state);
               return (
-                <div key={id} className={"rounded border p-3 text-xs " + (STATE_COLOR[n.state] ?? "border-neutral-800")}>
-                  <div className="flex justify-between font-semibold">
-                    <span>{n.provider}</span>
+                <div key={id} className="node" data-active={active} data-done={done} data-fail={fail} style={{ fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span className="strong">{n.provider}</span>
                     {n.priceUSDC && <span>${n.priceUSDC}</span>}
                   </div>
-                  <div className="mt-0.5 text-[11px] uppercase tracking-wide opacity-70">{n.state}</div>
-                  {n.preview && <div className="mt-1 line-clamp-2 text-neutral-400">{n.preview}</div>}
-                  {n.explorerUrl && <a href={n.explorerUrl} target="_blank" rel="noreferrer" className="mt-1 block underline">txid ↗</a>}
-                  {n.compensationExplorerUrl && (
-                    <a href={n.compensationExplorerUrl} target="_blank" rel="noreferrer" className="mt-1 block text-orange-400 underline">↩ refunded ↗</a>
-                  )}
+                  <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginTop: 3 }}>{n.state}</div>
+                  {n.preview && <div className="muted" style={{ marginTop: 6, fontSize: 11, maxHeight: 40, overflow: "hidden" }}>{n.preview}</div>}
+                  <div style={{ marginTop: 6, display: "grid", gap: 3 }}>
+                    {n.explorerUrl && <a href={n.explorerUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>payment txid ↗</a>}
+                    {n.compensationExplorerUrl && <a href={n.compensationExplorerUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>↩ refund txid ↗</a>}
+                  </div>
                 </div>
               );
             })}
@@ -75,18 +64,21 @@ export function WorkflowGraph({ view }: { view: RunView }) {
 export function PolicyPanel({ view }: { view: RunView }) {
   if (view.policy.checks.length === 0) return null;
   return (
-    <div className="rounded border border-neutral-800 p-3">
-      <div className="mb-2 text-xs text-neutral-500">Spend policy — {view.policy.verdict ?? "…"}</div>
-      <div className="space-y-1">
+    <div className="panel">
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Spend policy — {view.policy.verdict ?? "evaluating…"}</div>
+      <div style={{ display: "grid", gap: 6 }}>
         {view.policy.checks.map((c) => (
-          <div key={c.rule} className="flex items-center justify-between text-xs">
-            <span className={c.passed ? "text-neutral-300" : "text-red-400"}>
+          <div key={c.rule} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <span style={{ borderBottom: c.passed ? "none" : "1px dashed var(--muted)" }}>
               {c.passed ? "✓" : "✗"} {c.rule}
             </span>
-            {c.headroomUSDC && <span className="text-neutral-500">${c.actualUSDC} / ${c.limitUSDC} · ${c.headroomUSDC} left</span>}
+            {c.headroomUSDC != null && <span className="muted">{c.actualUSDC} / {c.limitUSDC} · {c.headroomUSDC} left</span>}
           </div>
         ))}
       </div>
+      {view.policy.violations.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12 }}>blocked: {view.policy.violations[0]}</div>
+      )}
     </div>
   );
 }
@@ -95,12 +87,47 @@ export function GroupPanel({ view }: { view: RunView }) {
   const g = view.group;
   if (!g.groupId && g.slots.length === 0) return null;
   return (
-    <div className="rounded border border-neutral-800 p-3 text-xs">
+    <div className="panel" style={{ fontSize: 12 }}>
+      <div className="muted" style={{ marginBottom: 6 }}>Atomic transaction group</div>
       {g.signatureCount != null && (
-        <div className="mb-1 text-emerald-400">{g.signatureCount} signature · {settledTxids(view).length || g.slots.length} payments</div>
+        <div className="strong" style={{ marginBottom: 6 }}>
+          {g.signatureCount} signature · {settledTxids(view).length || g.slots.length} payments · all-or-nothing
+        </div>
       )}
-      {g.groupId && <div className="break-all text-neutral-400">group <span className="text-neutral-200">{g.groupId}</span> · round {g.confirmedRound}</div>}
-      {g.simulated === false && <div className="text-red-400">simulation rejected — nothing submitted{g.simulationFailure ? `: ${g.simulationFailure}` : ""}</div>}
+      {g.slots.length > 0 && (
+        <div style={{ display: "grid", gap: 3, marginBottom: 8 }}>
+          {g.slots.map((s) => (
+            <div key={s.index} style={{ display: "flex", justifyContent: "space-between" }}>
+              <span className="muted">slot {s.index} · {s.kind}{s.stepId ? ` · ${s.stepId}` : ""}</span>
+              {s.amountUSDC && <span>${s.amountUSDC}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {g.groupId && <div style={{ wordBreak: "break-all" }}>group <span className="strong">{g.groupId}</span> · round {g.confirmedRound}</div>}
+      {g.simulated === false && <div style={{ marginTop: 6, borderLeft: "2px solid var(--muted)", paddingLeft: 8 }}>simulation rejected — nothing submitted{g.simulationFailure ? `: ${g.simulationFailure}` : ""}</div>}
+    </div>
+  );
+}
+
+export function ReceiptStrip({ view }: { view: RunView }) {
+  const tx = settledTxids(view);
+  if (tx.length === 0) return null;
+  return (
+    <div className="panel" style={{ fontSize: 12 }}>
+      <div className="muted" style={{ marginBottom: 6 }}>Settlement — {tx.length} txids to {new Set(tx.map((n) => n.payTo)).size} payees</div>
+      <table>
+        <tbody>
+          {tx.map((n) => (
+            <tr key={n.txid}>
+              <td>{n.provider}</td>
+              <td>${n.priceUSDC}</td>
+              <td>{n.state}</td>
+              <td><a href={n.explorerUrl} target="_blank" rel="noreferrer">tx ↗</a></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -108,24 +135,24 @@ export function GroupPanel({ view }: { view: RunView }) {
 export function Outcome({ view }: { view: RunView }) {
   const refunds = refundedNodes(view);
   return (
-    <div className="rounded border border-neutral-800 p-4">
-      <div className="text-lg">{outcomeHeadline(view)}</div>
-      {view.error?.costedNothing && <div className="mt-1 text-sm text-emerald-400">You were charged nothing.</div>}
+    <div className="panel">
+      <div style={{ fontSize: 18 }} className="strong">{outcomeHeadline(view)}</div>
+      {view.error?.costedNothing && <div style={{ marginTop: 4 }}>You were charged nothing.</div>}
       {refunds.length > 0 && (
-        <div className="mt-2 text-sm text-orange-400">
-          {refunds.length} provider took payment and failed — refunded on chain.
+        <div style={{ marginTop: 6 }}>
+          {refunds.length} provider took payment and failed to deliver — reversed on chain.
         </div>
       )}
-      {view.hasGap && <div className="mt-2 text-xs text-amber-500">⚠ connection gap detected — some events may be missing</div>}
+      {view.hasGap && <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>connection gap — some events may be missing</div>}
     </div>
   );
 }
 
 export function EventLog({ view }: { view: RunView }) {
   return (
-    <details className="rounded border border-neutral-800 p-3">
-      <summary className="cursor-pointer text-xs text-neutral-500">raw event stream ({view.log.length})</summary>
-      <pre className="mt-2 max-h-64 overflow-auto text-[10px] leading-relaxed text-neutral-400">
+    <details className="panel">
+      <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>raw event stream ({view.log.length})</summary>
+      <pre className="muted" style={{ marginTop: 8, maxHeight: 260, overflow: "auto", fontSize: 10, lineHeight: 1.6 }}>
         {view.log.map((e) => `${String(e.seq).padStart(3, "0")}  ${e.type}`).join("\n")}
       </pre>
     </details>

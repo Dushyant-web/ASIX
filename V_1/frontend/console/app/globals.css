@@ -1,5 +1,36 @@
 @import "tailwindcss";
 
-/* Projector-first: high contrast, large type, dark. F2 owns the real system. */
-:root { color-scheme: dark; }
-body { background: #0a0a0b; color: #e8e8ea; }
+/*
+ * MONOCHROME UX SHELL. No brand colors — that is Phase F2 (the team's job).
+ * State is conveyed by TEXT and border weight, never by hue. Everything reads
+ * as neutral grayscale so the design system can be layered on top cleanly.
+ */
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0c;
+  --panel: #141416;
+  --border: #2a2a2e;
+  --text: #e6e6e8;
+  --muted: #8a8a90;
+  --strong: #ffffff;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.panel { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 16px; }
+.muted { color: var(--muted); }
+.strong { color: var(--strong); }
+.btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 10px 18px; border-radius: 6px; cursor: pointer; font: inherit; }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn-primary { border-color: var(--strong); }
+.tag { border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; }
+a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; padding: 8px; border-top: 1px solid var(--border); font-weight: normal; }
+pre { white-space: pre-wrap; word-break: break-word; }
+/* state = border weight, not color */
+.node { border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.node[data-active="true"] { border-width: 2px; border-color: var(--strong); }
+.node[data-done="true"] { border-color: var(--muted); }
+.node[data-fail="true"] { border-style: dashed; }

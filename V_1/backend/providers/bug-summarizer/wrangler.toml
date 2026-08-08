@@ -17,3 +17,12 @@ PAY_TO_BUGSUM = "UX47LWFY55BHF4XBW7PNSPVDAZKWPTR3T6QJ67KD7DSDTENTSI7KZRLINY"
 [[kv_namespaces]]
 binding = "AXIS_CLAIMS"
 id = "4e0238a762514b3b996c3d3c1776229f"
+
+# Linearizable replay-claim store (blocks concurrent replay — Attack II)
+[[durable_objects.bindings]]
+name = "CLAIM_DO"
+class_name = "ClaimDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ClaimDO"]

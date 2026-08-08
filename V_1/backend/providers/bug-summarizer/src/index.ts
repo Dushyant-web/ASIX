@@ -1,7 +1,7 @@
 /** POST /bug/summarize — $0.05 — noisy bug report to repro steps + severity. */
 import { Hono } from "hono";
 import { z } from "zod";
-import { paidHandler, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
+import { paidHandler, ClaimDO, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
 
 const cfg: ProviderConfig = {
   name: "bug-summarizer",
@@ -43,3 +43,5 @@ app.post("/bug/summarize", (c) =>
   }),
 );
 export default app;
+
+export { ClaimDO };

@@ -17,3 +17,12 @@ PAY_TO_ROASTER = "FKBLIFVXJU7VDR7QBT6UA3NQVOSJAA3XX2F5MYSISP57PKMF4GX4MWWJHA"
 [[kv_namespaces]]
 binding = "AXIS_CLAIMS"
 id = "4e0238a762514b3b996c3d3c1776229f"
+
+# Linearizable replay-claim store (blocks concurrent replay — Attack II)
+[[durable_objects.bindings]]
+name = "CLAIM_DO"
+class_name = "ClaimDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ClaimDO"]

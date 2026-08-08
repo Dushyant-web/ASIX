@@ -50,6 +50,13 @@ export const api = {
   execute: (quoteId: string, runId?: string) =>
     post<ExecuteResponse>("/v1/workflow/execute", { quoteId, runId }),
 
+  /** Demo: force a named step to fail after payment (compensation path). */
+  executeChaos: (quoteId: string, runId: string, chaos: string) =>
+    post<ExecuteResponse>("/v1/workflow/execute", { quoteId, runId, chaos }),
+
+  /** Fire a red-team attack against our own endpoints; returns the block result. */
+  attack: (id: string) => post<{ fired: number; blocked: number; granted: number; mitigation: string; detail: string; sample?: string[] }>(`/v1/redteam/${id}`, {}),
+
   /** SSE endpoint URL for a run — consumed by useRunStream. */
   eventsUrl: (runId: string) => `${BASE}/v1/runs/${runId}/events`,
 };

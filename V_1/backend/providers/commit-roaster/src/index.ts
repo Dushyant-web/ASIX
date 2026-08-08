@@ -1,7 +1,7 @@
 /** POST /commit/roast — $0.03 — commit message critique + rewrites. */
 import { Hono } from "hono";
 import { z } from "zod";
-import { paidHandler, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
+import { paidHandler, ClaimDO, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
 
 const cfg: ProviderConfig = {
   name: "commit-roaster",
@@ -33,3 +33,5 @@ app.post("/commit/roast", (c) =>
   }),
 );
 export default app;
+
+export { ClaimDO };

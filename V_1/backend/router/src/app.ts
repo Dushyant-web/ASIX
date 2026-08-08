@@ -15,6 +15,7 @@ import { execute } from "./engine/execute.ts";
 import { buildReceipt } from "./engine/receipt.ts";
 import { getStored, store } from "./middleware/idempotency.ts";
 import { allow } from "./middleware/ratelimit.ts";
+import { runAttack } from "./engine/redteam.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
@@ -114,6 +115,15 @@ export function createApp(cfg: Config) {
     } catch (e) {
       if (e instanceof AxisError) return c.json({ runId, ...e.toJSON() }, e.http as 400 | 402 | 409 | 500);
       return c.json({ runId, error: { code: "INTERNAL", message: (e as Error).message } }, 500);
+    }
+  });
+
+  /** POST /v1/redteam/:id — fire an attack at our own endpoints, report the block. */
+  app.post("/v1/redteam/:id", async (c) => {
+    try {
+      return c.json(await runAttack(c.req.param("id"), cfg));
+    } catch (e) {
+      return c.json({ fired: 0, granted: 0, blocked: 0, mitigation: "", detail: (e as Error).message }, 500);
     }
   });
 

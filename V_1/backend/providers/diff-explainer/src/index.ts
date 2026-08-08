@@ -1,7 +1,7 @@
 /** POST /diff/explain — $0.03 — plain-language explanation of a git diff. */
 import { Hono } from "hono";
 import { z } from "zod";
-import { paidHandler, complete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
+import { paidHandler, ClaimDO, complete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
 
 const cfg: ProviderConfig = {
   name: "diff-explainer",
@@ -26,3 +26,5 @@ app.post("/diff/explain", (c) =>
   }),
 );
 export default app;
+
+export { ClaimDO };

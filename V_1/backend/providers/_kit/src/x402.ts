@@ -26,6 +26,8 @@ import type { LlmEnv } from "./llm.ts";
 export interface ProviderEnv extends LlmEnv {
   /** KV namespace backing single-use payment claims (mitigation M3). */
   AXIS_CLAIMS?: KVNamespace;
+  /** Durable Object namespace for linearizable claims (blocks concurrent replay). */
+  CLAIM_DO?: DurableObjectNamespace;
   FACILITATOR_URL?: string;
   NETWORK?: string;
   USDC_ASA_ID?: string;

@@ -1,7 +1,7 @@
 /** POST /guardrail/check — $0.02 — prompt-injection / policy risk score. */
 import { Hono } from "hono";
 import { z } from "zod";
-import { paidHandler, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
+import { paidHandler, ClaimDO, jsonComplete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
 
 const cfg: ProviderConfig = {
   name: "guardrail-checker",
@@ -41,3 +41,5 @@ app.post("/guardrail/check", (c) =>
   }),
 );
 export default app;
+
+export { ClaimDO };

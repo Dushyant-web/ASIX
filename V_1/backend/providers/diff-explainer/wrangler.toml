@@ -17,3 +17,12 @@ PAY_TO_DIFF = "3HDFJL3SN4LVLPBSEYOEB5IG3RMFRBOPX65W4P6WTE3ABE73RR6H2C34YI"
 [[kv_namespaces]]
 binding = "AXIS_CLAIMS"
 id = "4e0238a762514b3b996c3d3c1776229f"
+
+# Linearizable replay-claim store (blocks concurrent replay — Attack II)
+[[durable_objects.bindings]]
+name = "CLAIM_DO"
+class_name = "ClaimDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ClaimDO"]

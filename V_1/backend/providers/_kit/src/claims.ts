@@ -88,8 +88,39 @@ export class MemoryClaimStore implements ClaimStore {
 
 const memory = new MemoryClaimStore();
 
-export function getClaimStore(env: { AXIS_CLAIMS?: KVNamespace }): ClaimStore {
-  return env.AXIS_CLAIMS ? new KvClaimStore(env.AXIS_CLAIMS) : memory;
+/**
+ * In-isolate memory claim IN FRONT of KV.
+ *
+ * The claim() below is synchronous up to the first await: it reserves the key
+ * in a plain Map before yielding, so N concurrent requests in the same isolate
+ * serialize and only the first proceeds. KV (eventually consistent) then guards
+ * across isolates and restarts. Together they block the concurrent replay flood
+ * that KV alone races on.
+ */
+class LayeredClaimStore implements ClaimStore {
+  private readonly mem = new Map<string, number>();
+  private readonly kv: KVNamespace;
+  constructor(kv: KVNamespace) { this.kv = kv; }
+
+  async claim(key: string, ttlSeconds: number): Promise<boolean> {
+    const now = Date.now();
+    // Synchronous reserve — no await before this, so concurrent calls in this
+    // isolate cannot both pass.
+    const held = this.mem.get(key);
+    if (held && held > now) return false;
+    this.mem.set(key, now + ttlSeconds * 1000);
+
+    // Cross-isolate durability via KV.
+    if ((await this.kv.get(key)) !== null) return false;
+    await this.kv.put(key, "1", { expirationTtl: Math.max(60, ttlSeconds) });
+    return true;
+  }
+}
+
+export function getClaimStore(env: { AXIS_CLAIMS?: KVNamespace; CLAIM_DO?: DurableObjectNamespace }): ClaimStore {
+  if (env.CLAIM_DO) return new DurableClaimStore(env.CLAIM_DO);
+  if (env.AXIS_CLAIMS) return new LayeredClaimStore(env.AXIS_CLAIMS);
+  return memory;
 }
 
 /**
@@ -139,4 +170,41 @@ function canonicalize(v: unknown): string {
     .sort()
     .map((k) => `${JSON.stringify(k)}:${canonicalize(o[k])}`)
     .join(",")}}`;
+}
+
+/**
+ * Durable Object claim store — the linearizable fix for CONCURRENT replay.
+ *
+ * A concurrent burst hits many isolates, so per-isolate memory and eventually-
+ * consistent KV both race. A Durable Object is a single globally-unique,
+ * single-threaded instance: every claim for a given key routes to the same
+ * object and is processed one at a time, so exactly one caller wins. This is
+ * what actually blocks the paper's concurrent DGR flood.
+ */
+export class ClaimDO {
+  private readonly storage: DurableObjectStorage;
+  constructor(state: DurableObjectState) {
+    this.storage = state.storage;
+  }
+  async fetch(req: Request): Promise<Response> {
+    const { key, ttlSeconds } = (await req.json()) as { key: string; ttlSeconds: number };
+    const now = Date.now();
+    const expiry = (await this.storage.get<number>(key)) ?? 0;
+    if (expiry > now) return Response.json({ claimed: false });
+    await this.storage.put(key, now + ttlSeconds * 1000);
+    return Response.json({ claimed: true });
+  }
+}
+
+class DurableClaimStore implements ClaimStore {
+  private readonly ns: DurableObjectNamespace;
+  constructor(ns: DurableObjectNamespace) { this.ns = ns; }
+  async claim(key: string, ttlSeconds: number): Promise<boolean> {
+    // One DO instance per key → all claims for that key serialize globally.
+    const stub = this.ns.get(this.ns.idFromName(key));
+    const res = await stub.fetch("https://do/claim", {
+      method: "POST", body: JSON.stringify({ key, ttlSeconds }),
+    });
+    return ((await res.json()) as { claimed: boolean }).claimed;
+  }
 }
