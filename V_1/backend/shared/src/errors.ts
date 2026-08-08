@@ -46,6 +46,12 @@ export const ERROR_CODES = {
   PROVIDER_FAILED:      { http: 502, costedNothing: false },
   COMPENSATION_FAILED:  { http: 500, costedNothing: false },
 
+  // ── Auth (console accounts — never on the money path) ─────────────────
+  INVALID_INPUT:        { http: 400, costedNothing: true },
+  EMAIL_TAKEN:          { http: 409, costedNothing: true },
+  INVALID_CREDENTIALS:  { http: 401, costedNothing: true },
+  UNAUTHORIZED:         { http: 401, costedNothing: true },
+
   // ── Infrastructure ────────────────────────────────────────────────────
   RATE_LIMITED:         { http: 429, costedNothing: true },
   INTERNAL:             { http: 500, costedNothing: true },

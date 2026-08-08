@@ -23,7 +23,13 @@ const seqs = new Map<string, number>();
 const buffer = new Map<string, RunEvent[]>();
 const BUFFER_MAX = 200;
 
+// The most recently STARTED run, so a monitor (the Chrome extension) can
+// auto-follow the live agent without being told a runId.
+let latest: string | null = null;
+export const latestRunId = (): string | null => latest;
+
 export function emit(runId: string, raw: Raw): RunEvent {
+  if (raw.type === "run.started") latest = runId;
   const seq = (seqs.get(runId) ?? -1) + 1;
   seqs.set(runId, seq);
   const event = { ...raw, seq, at: new Date().toISOString(), runId } as RunEvent;

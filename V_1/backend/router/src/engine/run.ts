@@ -128,7 +128,7 @@ export async function runWorkflow(
         const output = await callProvider(base, step.path, tx.txid, input);
         outputs[stepId] = output;
         delivered.push({ stepId, output });
-        emit(runId, { type: "step.delivered", stepId, latencyMs: Date.now() - started, preview: JSON.stringify(output).slice(0, 120) });
+        emit(runId, { type: "step.delivered", stepId, latencyMs: Date.now() - started, preview: JSON.stringify(output).slice(0, 600) });
         emit(runId, { type: "node.state", stepId, state: "delivered" });
         await database.update(legsTable).set({ status: "DELIVERED", result: output as object, latencyMs: Date.now() - started }).where(eq(legsTable.txid, tx.txid));
       } catch (e) {

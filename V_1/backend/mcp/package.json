@@ -1,0 +1,18 @@
+{
+  "name": "@axis/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing AXIS so any AI agent can atomically pay N x402 APIs on Algorand.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": { "axis-mcp": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "node src/index.ts",
+    "inspect": "npx @modelcontextprotocol/inspector node src/index.ts"
+  },
+  "dependencies": {
+    "@axis/pay": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.2"
+  }
+}

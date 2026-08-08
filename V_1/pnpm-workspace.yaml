@@ -3,6 +3,9 @@ packages:
   - "backend/guard"
   - "backend/router"
   - "backend/receipts"
+  - "backend/sdk"
+  - "backend/mcp"
+  - "backend/agent"
   - "backend/providers/*"
   - "frontend/*"
 

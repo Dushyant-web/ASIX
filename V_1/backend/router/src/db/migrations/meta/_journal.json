@@ -8,6 +8,13 @@
       "when": 1786127959808,
       "tag": "0000_petite_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786179464423,
+      "tag": "0001_brave_thing",
+      "breakpoints": true
     }
   ]
 }

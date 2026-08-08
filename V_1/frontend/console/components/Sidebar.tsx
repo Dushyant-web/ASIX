@@ -1,5 +1,8 @@
 "use client";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { session } from "../lib/api";
 
 const NAV = [
   { href: "/", label: "Run workflow" },
@@ -10,6 +13,18 @@ const NAV = [
 ];
 
 export function Sidebar() {
+  const [email, setEmail] = useState<string | null>(null);
+  const router = useRouter();
+
+  // Read the session on the client only (localStorage is not on the server).
+  useEffect(() => { setEmail(session.email()); }, []);
+
+  function logout() {
+    session.clear();
+    setEmail(null);
+    router.push("/login");
+  }
+
   return (
     <nav>
       <h2>AXIS</h2>
@@ -18,6 +33,11 @@ export function Sidebar() {
           <li key={n.href}><Link href={n.href}>{n.label}</Link></li>
         ))}
       </ul>
+      {email ? (
+        <p>{email} · <button type="button" onClick={logout}>log out</button></p>
+      ) : (
+        <p><Link href="/login">Log in</Link> · <Link href="/signup">Sign up</Link></p>
+      )}
     </nav>
   );
 }

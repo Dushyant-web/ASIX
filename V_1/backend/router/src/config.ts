@@ -45,6 +45,10 @@ const schema = z.object({
   AGENT_MNEMONIC: z.string().min(1),
   QUOTE_SIGNING_KEY: z.string().min(32, "use at least 32 chars of entropy"),
 
+  // Signs console session JWTs. Not on the money path; a dev default is fine
+  // locally, but set a real secret in any shared deploy.
+  JWT_SECRET: z.string().min(16).default("axis-dev-jwt-secret-change-me-please"),
+
   DATABASE_URL: z.string().url(),
 
   MAX_WORKFLOW_SPEND_MICRO: zMicro.default("1000000"),

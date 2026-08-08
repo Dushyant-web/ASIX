@@ -115,3 +115,14 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   response: jsonb("response").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Console accounts. Plain JWT auth — no third-party provider. The password is
+ * stored ONLY as a scrypt hash (salt:hash); the cleartext never touches the DB.
+ */
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

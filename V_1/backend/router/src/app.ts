@@ -10,21 +10,39 @@ import { AxisError } from "@axis/shared";
 import type { Config } from "./config.ts";
 import { WORKFLOWS } from "./workflows/pr-review.ts";
 import { buildQuote, quoteToJson, persistQuote } from "./engine/quote.ts";
-import { subscribe } from "./bus.ts";
+import { subscribe, latestRunId } from "./bus.ts";
 import { execute } from "./engine/execute.ts";
-import { buildReceipt } from "./engine/receipt.ts";
+import { buildReceipt, listReceipts } from "./engine/receipt.ts";
+import { signup, login } from "./engine/auth.ts";
 import { getStored, store } from "./middleware/idempotency.ts";
 import { allow } from "./middleware/ratelimit.ts";
-import { runAttack } from "./engine/redteam.ts";
+import { runAttack, primePayment } from "./engine/redteam.ts";
 import { randomUUID } from "node:crypto";
 
 export function createApp(cfg: Config) {
   const app = new Hono();
 
   // The console (browser) calls quote/execute and opens the SSE stream.
-  app.use("*", cors({ origin: "*", allowHeaders: ["content-type", "idempotency-key"], allowMethods: ["GET", "POST", "OPTIONS"] }));
+  app.use("*", cors({ origin: "*", allowHeaders: ["content-type", "idempotency-key", "authorization"], allowMethods: ["GET", "POST", "OPTIONS"] }));
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+  // ── Auth. Plain JWT, no third-party provider. Off the money path entirely. ──
+  const authHandler = (fn: typeof signup | typeof login) => async (c: import("hono").Context) => {
+    let body: { email?: string; password?: string };
+    try { body = await c.req.json(); } catch {
+      return c.json({ error: { code: "INVALID_INPUT", message: "body must be JSON" } }, 400);
+    }
+    try {
+      const out = await fn(body.email ?? "", body.password ?? "", cfg.DATABASE_URL, cfg.JWT_SECRET);
+      return c.json(out);
+    } catch (e) {
+      if (e instanceof AxisError) return c.json({ ...e.toJSON() }, e.http as 400 | 401 | 409);
+      return c.json({ error: { code: "INTERNAL", message: (e as Error).message } }, 500);
+    }
+  };
+  app.post("/v1/auth/signup", authHandler(signup));
+  app.post("/v1/auth/login", authHandler(login));
 
   app.get("/readyz", async (c) => {
     // Ready = every configured provider answers its /health.
@@ -118,13 +136,45 @@ export function createApp(cfg: Config) {
     }
   });
 
-  /** POST /v1/redteam/:id — fire an attack at our own endpoints, report the block. */
-  app.post("/v1/redteam/:id", async (c) => {
+  /** POST /v1/redteam/prime — pre-settle a real payment so the attack click is
+   *  instant (the ~4s on-chain settle happens here, in the background). */
+  app.post("/v1/redteam/prime", async (c) => {
     try {
-      return c.json(await runAttack(c.req.param("id"), cfg));
+      return c.json({ proof: await primePayment(cfg) });
+    } catch (e) {
+      return c.json({ error: { code: "PRIME_FAILED", message: (e as Error).message } }, 500);
+    }
+  });
+
+  /** POST /v1/redteam/:id — fire an attack at our own endpoints, report the block.
+   *  An optional { proof } (from /prime) skips the on-chain settle on the click. */
+  app.post("/v1/redteam/:id", async (c) => {
+    let proof: string | undefined;
+    try { proof = (await c.req.json())?.proof; } catch { /* no body is fine */ }
+    try {
+      return c.json(await runAttack(c.req.param("id"), cfg, { proof }));
     } catch (e) {
       return c.json({ fired: 0, granted: 0, blocked: 0, mitigation: "", detail: (e as Error).message }, 500);
     }
+  });
+
+  /** GET /v1/workflows — the workflows an agent can run (id + provider steps). */
+  app.get("/v1/workflows", (c) => {
+    return c.json({
+      workflows: Object.values(WORKFLOWS).map((w) => ({
+        id: w.id,
+        steps: w.steps.map((s) => ({ id: s.id, provider: s.provider, path: s.path })),
+        inputs: [...new Set(w.steps.flatMap((s) =>
+          Object.values(s.input).flatMap((t) =>
+            typeof t === "string" ? [...t.matchAll(/\$\{\s*inputs\.([A-Za-z0-9_]+)\s*\}/g)].map((m) => m[1]!) : []),
+        ))],
+      })),
+    });
+  });
+
+  /** GET /v1/receipts — every run in the DB, newest first. The receipts index. */
+  app.get("/v1/receipts", async (c) => {
+    return c.json({ receipts: await listReceipts(cfg.DATABASE_URL) });
   });
 
   /** GET /v1/receipt/:id — the unified receipt. Renders standalone. */
@@ -133,6 +183,9 @@ export function createApp(cfg: Config) {
     if (!receipt) return c.json({ error: { code: "NOT_FOUND", message: "no such receipt" } }, 404);
     return c.json(receipt);
   });
+
+  /** GET /v1/runs/latest — the most recently started run, for the monitor to follow. */
+  app.get("/v1/runs/latest", (c) => c.json({ runId: latestRunId() }));
 
   /** GET /v1/runs/:id/events — the live SSE stream the console renders. */
   app.get("/v1/runs/:id/events", (c) => {

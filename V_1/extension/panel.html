@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AXIS Live Monitor</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #e8ecf3;
+      background:
+        radial-gradient(90% 55% at 50% -5%, #16233a 0%, rgba(10,14,20,0) 55%),
+        radial-gradient(70% 40% at 100% 20%, #1a2a1f 0%, rgba(10,14,20,0) 50%),
+        #080a0e;
+      padding: 12px;
+    }
+    h1 { font-size: 14px; margin: 0; letter-spacing: 1px; font-weight: 800; }
+    h1 .ax { color: #f6c344; }
+    .sub { color: #63708a; font-size: 10px; margin: 2px 0 10px; }
+    .bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .bar input { flex: 1; min-width: 0; background: #0e141d; border: 1px solid #1e2836; color: #e8ecf3; padding: 5px 8px; border-radius: 7px; font: inherit; }
+    button { background: #172130; border: 1px solid #263243; color: #e8ecf3; padding: 5px 10px; border-radius: 7px; cursor: pointer; font: inherit; font-weight: 600; }
+    button:hover { background: #1e2a3b; }
+    .status { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .5px; }
+    .status.online, .status.running { background: #14263c; color: #63b3ff; box-shadow: 0 0 12px rgba(99,179,255,.25); }
+    .status.SETTLED { background: #123324; color: #4ade80; }
+    .status.PARTIAL { background: #33280f; color: #fbbf24; }
+    .status.FAILED, .status.REVERSED, .status.reconnecting { background: #331617; color: #f87171; }
+    .status.idle, .status.offline { background: #161c26; color: #63708a; }
+
+    #scene { width: 100%; height: auto; display: block; }
+
+    /* nodes */
+    .card { fill: rgba(17,24,34,.92); stroke: #263243; stroke-width: 1.5; transition: stroke .35s, filter .35s; }
+    .card.active   { stroke: #63b3ff; filter: drop-shadow(0 0 6px rgba(99,179,255,.55)); }
+    .card.paid, .card.delivered { stroke: #4ade80; filter: drop-shadow(0 0 7px rgba(74,222,128,.55)); }
+    .card.running  { stroke: #63b3ff; filter: drop-shadow(0 0 6px rgba(99,179,255,.5)); }
+    .card.failed   { stroke: #f87171; filter: drop-shadow(0 0 7px rgba(248,113,113,.6)); }
+    .card.refunded { stroke: #fbbf24; filter: drop-shadow(0 0 8px rgba(251,191,36,.6)); }
+    .card.pass { stroke: #4ade80; } .card.fail { stroke: #f87171; }
+    .name { fill: #eef2f8; font: 800 11px ui-monospace, monospace; }
+    .role { fill: #7c8aa0; font: 9px ui-monospace, monospace; }
+    .role.price { fill: #4ade80; font-weight: 700; }
+    .role.warn  { fill: #fbbf24; }
+    .lane { fill: rgba(246,130,31,.06); stroke: rgba(246,130,31,.35); stroke-width: 1; stroke-dasharray: 3 3; }
+    .lane-lbl { fill: #f6821f; font: 700 9px ui-monospace, monospace; letter-spacing: .5px; }
+
+    /* edges */
+    .edge { fill: none; stroke: #24303f; stroke-width: 1.8; marker-end: url(#arw); }
+    .edge.active { stroke: #63b3ff; stroke-dasharray: 5 4; animation: dash .55s linear infinite; }
+    .edge.paid   { stroke: #4ade80; stroke-dasharray: 5 4; animation: dash .55s linear infinite; }
+    .edge.refund { stroke: #fbbf24; stroke-dasharray: 5 4; animation: dashr .55s linear infinite; }
+    @keyframes dash  { to { stroke-dashoffset: -18; } }
+    @keyframes dashr { to { stroke-dashoffset: 18; } }
+
+    .caption {
+      min-height: 40px; margin-top: 10px; padding: 9px 12px; font-size: 12px; color: #d7deea;
+      background: linear-gradient(180deg, rgba(20,30,44,.9), rgba(14,20,29,.9));
+      border: 1px solid #1d2735; border-radius: 10px;
+    }
+    .caption b { color: #63b3ff; }
+    .caption .paid { color: #4ade80; }
+    .caption .warn { color: #fbbf24; }
+
+    /* live backend terminal */
+    .term { margin-top: 10px; background: #04060a; border: 1px solid #182230; border-radius: 10px; overflow: hidden; }
+    .term-head {
+      display: flex; align-items: center; gap: 8px; background: #0b1320; color: #5c6a80;
+      font-size: 10px; padding: 6px 10px; border-bottom: 1px solid #121b27; letter-spacing: .5px;
+    }
+    .term-head .dots { color: #37455a; letter-spacing: 2px; }
+    .term-head .live { margin-left: auto; color: #4ade80; }
+    .term-head .live::before { content: "●"; margin-right: 4px; animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: .25; } }
+    .term-body { max-height: 172px; overflow-y: auto; padding: 8px 10px; font: 11px/1.55 ui-monospace, SFMono-Regular, monospace; }
+    .term-body .ln { white-space: pre-wrap; word-break: break-word; }
+    .term-body .ts { color: #46566b; }
+    .term-body .ev { color: #63b3ff; }
+    .term-body .ev.ok { color: #4ade80; } .term-body .ev.warn { color: #fbbf24; } .term-body .ev.err { color: #f87171; }
+    .term-body .dim { color: #869583; }
+    .term-body .money { color: #f6c344; font-weight: 600; }
+    .term-body .g { color: #4ade80; } .term-body .y { color: #fbbf24; } .term-body .r { color: #f87171; }
+    .term-body .empty { color: #46566b; }
+  </style>
+</head>
+<body>
+  <h1><span class="ax">◆</span> AXIS · Live Monitor</h1>
+  <div class="sub">N x402 calls → one atomic Algorand group → one signature</div>
+
+  <div class="bar">
+    <input id="router" placeholder="http://localhost:8080" />
+    <button id="save">set</button>
+    <span id="conn" class="status offline">offline</span>
+  </div>
+
+  <svg id="scene" viewBox="0 0 380 476" xmlns="http://www.w3.org/2000/svg" aria-label="AXIS payment flow"></svg>
+
+  <div id="caption" class="caption">Waiting for the agent — click <b>“Should I merge this PR?”</b> in the console.</div>
+
+  <div class="term">
+    <div class="term-head"><span class="dots">● ● ●</span> axis@router — live backend tail <span class="live">streaming</span></div>
+    <div id="term-body" class="term-body"><div class="empty">no events yet — waiting for a run…</div></div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>
