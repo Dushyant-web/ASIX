@@ -16,6 +16,13 @@ const scene = $("scene");
 let router = DEFAULT_ROUTER;
 let followedRunId = null, es = null, view = null;
 let slotOf = {}, providerCount = 4;
+let catalogue = [], boxOfProvider = {};   // ALL services (from /v1/workflows) + name→box
+const ABBR = {
+  "diff-explainer": "diff", "guardrail-checker": "guard", "commit-roaster": "commit",
+  "bug-summarizer": "bugs", "summarizer": "summ", "test-writer": "tests",
+  "code-generator": "code", "debugger": "debug", "translator": "trans",
+};
+const label = (p) => ABBR[p] || short(p).slice(0, 6);
 
 // ── Brand logos — simplified inline SVG marks in each brand's colour ─────────
 const LOGO = {
@@ -98,28 +105,40 @@ function nodeSvg(id, n) {
 }
 
 /** A compact card (logo top, name + role centered) — for the N provider boxes. */
+/** A compact service box: name + status line + a hidden ✕ overlay (shown when unused). */
 function provSvg(id, n) {
   const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
   return `<g id="n-${id}">
-    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="10"/>
-    <g transform="translate(${n.cx - 12},${y + 6})">${LOGO.cloudflare}</g>
-    <text class="name" id="name-${id}" x="${n.cx}" y="${y + 42}" text-anchor="middle" style="font-size:8.5px">${n.name}</text>
-    <text class="role" id="role-${id}" x="${n.cx}" y="${y + 52}" text-anchor="middle" style="font-size:7.5px">${n.role}</text>
+    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="8"/>
+    <text class="name" id="name-${id}" x="${n.cx}" y="${n.cy - 1}" text-anchor="middle" style="font-size:9px">${n.name}</text>
+    <text class="role" id="role-${id}" x="${n.cx}" y="${n.cy + 9}" text-anchor="middle" style="font-size:7px">${n.role || ""}</text>
+    <g id="x-${id}" opacity="0">
+      <line x1="${x + 6}" y1="${y + 6}" x2="${x + n.w - 6}" y2="${y + n.h - 6}" stroke="#f87171" stroke-width="2.4"/>
+      <line x1="${x + n.w - 6}" y1="${y + 6}" x2="${x + 6}" y2="${y + n.h - 6}" stroke="#f87171" stroke-width="2.4"/>
+    </g>
   </g>`;
 }
 
-/** Lay out N provider boxes across the Cloudflare lane and wire their edges. */
-function layoutProviders(nodes) {
-  const list = nodes.slice(0, 10);
-  providerCount = list.length;
-  PROV = list.map((_, i) => `p${i}`);
-  const gap = 4, m = 8, cy = 352, h = 56;
-  const w = Math.max(34, Math.min(88, (380 - 2 * m - gap * (list.length - 1)) / Math.max(list.length, 1)));
+/** Lay out ALL services (the catalogue) in a grid, wire edges, start all unused. */
+function layoutCatalogue() {
+  const names = catalogue;
+  if (!names.length) return;
+  PROV = names.map((_, i) => `p${i}`);
+  boxOfProvider = {};
+  const count = names.length;
+  const perRow = Math.min(5, count);
+  const rows = Math.ceil(count / perRow);
+  const m = 8, gapX = 5, gapY = 6, topY = rows > 1 ? 344 : 352;
+  const w = (380 - 2 * m - gapX * (perRow - 1)) / perRow;
+  const h = rows > 1 ? 34 : 54;
   let edges = "", boxes = "";
-  list.forEach((node, i) => {
+  names.forEach((prov, i) => {
+    const r = Math.floor(i / perRow), c = i % perRow;
+    const inRow = Math.min(perRow, count - r * perRow);
+    const x0 = (380 - (inRow * w + gapX * (inRow - 1))) / 2;
     const id = `p${i}`;
-    N[id] = { cx: m + w / 2 + i * (w + gap), cy, w, h, logo: "cloudflare", name: short(node.provider).slice(0, 10), role: "" };
-    slotOf[node.stepId] = i;
+    N[id] = { cx: x0 + w / 2 + c * (w + gapX), cy: topY + r * (h + gapY), w, h, name: label(prov), role: "" };
+    boxOfProvider[prov] = i;
     for (const [f, t] of [["group", id], [id, "receipt"]]) {
       const a = anchor(f, t), b = anchor(t, f);
       edges += `<path id="e-${f}-${t}" class="edge" d="M${a.x},${a.y} L${b.x},${b.y}"/>`;
@@ -129,6 +148,23 @@ function layoutProviders(nodes) {
   const pe = $("prov-edges"), pb = $("prov-boxes");
   if (pe) pe.innerHTML = edges;
   if (pb) pb.innerHTML = boxes;
+  names.forEach((_, i) => markUnused(`p${i}`));   // everything crossed until a run uses it
+}
+
+const showX = (id, on) => { const e = $(`x-${id}`); if (e) e.setAttribute("opacity", on ? "0.9" : "0"); };
+function markUnused(id) { setCard(id, "unused"); setRole(id, "not used", "dim"); showX(id, true); }
+function markUsed(id) { setCard(id, "active"); setRole(id, ""); showX(id, false); }
+
+/** Fetch the full service catalogue (distinct providers across all workflows). */
+async function fetchCatalogue() {
+  try {
+    const res = await fetch(`${router}/v1/workflows`, { cache: "no-store" });
+    if (!res.ok) return;
+    const { workflows } = await res.json();
+    const set = [];
+    for (const wf of (workflows || [])) for (const st of (wf.steps || [])) if (!set.includes(st.provider)) set.push(st.provider);
+    if (set.length) { catalogue = set; if (view) layoutCatalogue(); }
+  } catch { /* offline — fall back to the run's own providers */ }
 }
 
 // ── Scene mutators ──────────────────────────────────────────────────────────
@@ -213,15 +249,23 @@ function term(e) {
 function clearTerm() { const b = $("term-body"); if (b) b.innerHTML = `<div class="empty">…</div>`; }
 
 // ── View + event fold ───────────────────────────────────────────────────────
-function fresh() { buildScene(); clearTerm(); slotOf = {}; return { runId: null, status: "idle", paidSlots: [] }; }
+function fresh() { buildScene(); layoutCatalogue(); clearTerm(); slotOf = {}; return { runId: null, status: "idle", paidSlots: [], used: [] }; }
 
 function apply(e) {
   switch (e.type) {
     case "run.started": {
       view.status = "running";
       setCard("agent", "active"); setCard("router", "active"); pulse("agent", "router");
-      layoutProviders(e.nodes || []);   // draw N provider boxes dynamically
-      caption(`Agent asks the <b>Router</b> to run the workflow. Nothing paid yet.`);
+      const used = e.nodes || [];
+      // If we don't have the full catalogue yet, fall back to this run's providers.
+      if (!catalogue.length) { catalogue = used.map((n) => n.provider); layoutCatalogue(); }
+      slotOf = {}; view.used = [];
+      PROV.forEach((_, i) => markUnused(`p${i}`));         // cross out everything first
+      used.forEach((nd) => {
+        const bi = boxOfProvider[nd.provider];
+        if (bi != null) { slotOf[nd.stepId] = bi; view.used.push(bi); markUsed(`p${bi}`); }
+      });
+      caption(`Agent runs the workflow — <b>${view.used.length}</b> of ${PROV.length} services used. The rest are ✕ (not called, not paid).`);
       break;
     }
     case "probe.sent": {
@@ -306,16 +350,16 @@ function apply(e) {
         // Everything unwinds: ALL coins return to where they started.
         view.paidSlots.forEach((s) => { setCard(PROV[s], "refunded"); pulse("group", PROV[s], "refund"); coins(PROV[s], "agent", { n: 3, dur: 1.1, refund: true }); });
       }
-      // The flow ALWAYS ends here: every provider's outcome (delivered or
-      // refunded) converges into ONE unified receipt — nothing left hanging.
-      for (let i = 0; i < providerCount; i++) { pulse(PROV[i], "receipt", e.status === "SETTLED" ? "paid" : "refund"); coins(PROV[i], "receipt", { n: 1, dur: 0.7, gap: 0.08, record: true }); }
+      // The flow ALWAYS ends here: every USED provider's outcome converges into
+      // ONE unified receipt. Unused services (✕) are never paid, never recorded.
+      (view.used || []).forEach((bi) => { pulse(`p${bi}`, "receipt", e.status === "SETTLED" ? "paid" : "refund"); coins(`p${bi}`, "receipt", { n: 1, dur: 0.7, gap: 0.08, record: true }); });
       const rcls = e.status === "SETTLED" ? "paid" : (e.status === "PARTIAL" ? "refunded" : "failed");
       setCard("receipt", rcls);
       setRole("receipt",
         e.status === "SETTLED" ? `✓ created · $${e.totalUSDC}` : `${e.status} · $${e.refundedUSDC} back`,
         e.status === "SETTLED" ? "" : "warn");
       caption(e.status === "SETTLED"
-        ? `<span class="paid"><b>Receipt created</b> — all ${providerCount} resources delivered, $${e.totalUSDC} paid, one signature. Opens standalone.</span>`
+        ? `<span class="paid"><b>Receipt created</b> — ${(view.used || []).length} of ${PROV.length} services used & paid ($${e.totalUSDC}), the rest ✕ never charged. One signature.</span>`
         : `<span class="warn"><b>Receipt created</b> — delivered + <b>refunded</b> legs both recorded, $${e.refundedUSDC} back on-chain. ${e.status}, nothing left unresolved.</span>`);
       break;
     }
@@ -351,12 +395,13 @@ const ALL_EVENTS = ["run.started","probe.sent","challenge.received","quote.ready
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (x) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[x]));
 
 // ── URL persistence + boot ──────────────────────────────────────────────────
-chrome.storage?.local.get(["router"], (r) => { router = r.router || DEFAULT_ROUTER; $("router").value = router; });
+chrome.storage?.local.get(["router"], (r) => { router = r.router || DEFAULT_ROUTER; $("router").value = router; fetchCatalogue(); });
 $("save").addEventListener("click", () => {
   router = ($("router").value || DEFAULT_ROUTER).replace(/\/$/, "");
-  chrome.storage?.local.set({ router }); followedRunId = null; if (es) { es.close(); es = null; }
+  chrome.storage?.local.set({ router }); followedRunId = null; catalogue = []; if (es) { es.close(); es = null; } fetchCatalogue();
 });
 view = fresh();
+fetchCatalogue();
 pollLatest();
 setInterval(pollLatest, 2000);
 

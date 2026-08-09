@@ -4,6 +4,7 @@ import { api } from "../lib/api.ts";
 import { useRunStream, useMockRun } from "../lib/useRunStream.ts";
 import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, ReceiptStrip, Outcome, EventLog } from "../components/RunView.tsx";
 import { ProjectPicker } from "../components/ProjectPicker.tsx";
+import { AllServices } from "../components/AllServices.tsx";
 import { isTerminal } from "../lib/state-machine.ts";
 
 /** Pull the human-readable text out of a provider's result preview (which is JSON). */
@@ -23,6 +24,7 @@ export default function Home() {
   const [useMock, setUseMock] = useState(false);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState("");
+  const [retries, setRetries] = useState(0);
   const live = useRunStream(runId);
   const mock = useMockRun("happy", mockTick);
   const view = useMock ? mock : live;
@@ -45,9 +47,13 @@ export default function Home() {
       <h1>Run workflow</h1>
       <p>&quot;Should I merge this PR?&quot; — <b>seven paid providers</b> run at once in ONE atomic payment to seven different payees. One signature, all-or-nothing. Each is paid, and any that fails to deliver is refunded on chain. You never pick a service — the workflow fans out to all of them.</p>
       <p>Project (optional): <ProjectPicker value={projectId} onChange={setProjectId} /></p>
-      <button onClick={run} disabled={busy}>{busy ? "Running..." : "Should I merge this PR?"}</button>
+      <button onClick={() => { setRetries(0); run(); }} disabled={busy}>{busy ? "Running..." : "Should I merge this PR?"}</button>
+      {isTerminal(view) && retries < 2
+        ? <button onClick={() => { setRetries((r) => r + 1); run(); }} disabled={busy} style={{ marginLeft: 8 }}>Manual retry ({2 - retries} left)</button>
+        : null}
       {useMock ? <span> demo mode (router offline)</span> : null}
       <Outcome view={view} />
+      <AllServices view={view} />
       {Object.values(view.nodes).some((n) => n.preview) && (
         <section>
           <h2>Results</h2>
