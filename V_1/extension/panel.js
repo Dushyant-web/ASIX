@@ -39,17 +39,13 @@ const N = {
   neon:  { cx: 324, cy: 128, w: 104, h: 46, logo: "neon", name: "Neon", role: "Postgres store" },
   group: { cx: 150, cy: 230, w: 182, h: 50, logo: "algorand", name: "Atomic Group", role: "Algorand · all-or-nothing" },
   facil: { cx: 322, cy: 230, w: 110, h: 50, logo: "goplausible", name: "GoPlausible", role: "fee payer" },
-  p0: { cx: 52,  cy: 352, w: 88, h: 58, logo: "cloudflare", name: "provider", role: "NVIDIA NIM" },
-  p1: { cx: 144, cy: 352, w: 88, h: 58, logo: "cloudflare", name: "provider", role: "NVIDIA NIM" },
-  p2: { cx: 236, cy: 352, w: 88, h: 58, logo: "cloudflare", name: "provider", role: "NVIDIA NIM" },
-  p3: { cx: 328, cy: 352, w: 88, h: 58, logo: "cloudflare", name: "provider", role: "NVIDIA NIM" },
   receipt: { cx: 190, cy: 448, w: 234, h: 48, logo: "receipt", name: "Receipt", role: "unified · one per run" },
 };
-const PROV = ["p0", "p1", "p2", "p3"];
+// Provider boxes are laid out DYNAMICALLY per run (N providers, not a fixed 4).
+let PROV = [];
 const EDGES = [
   ["agent","router"], ["router","guard"], ["router","neon"], ["router","group"],
-  ["facil","group"], ["group","neon"], ["group","p0"], ["group","p1"], ["group","p2"], ["group","p3"],
-  ["p0","receipt"], ["p1","receipt"], ["p2","receipt"], ["p3","receipt"],
+  ["facil","group"], ["group","neon"],
 ];
 const ctr = (id) => ({ x: N[id].cx, y: N[id].cy });
 function anchor(a, b) {
@@ -83,19 +79,56 @@ function buildScene() {
     const p1 = anchor(f, t), p2 = anchor(t, f);
     s += `<path id="e-${f}-${t}" class="edge" d="M${p1.x},${p1.y} L${p2.x},${p2.y}"/>`;
   }
-  for (const id in N) {
-    const n = N[id];
-    const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
-    const lx = x + 9, ly = y + (n.h - 24) / 2;         // logo top-left
-    const tx = lx + 32;                                 // text start
-    s += `<g id="n-${id}">
-      <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="11"/>
-      <g transform="translate(${lx},${ly})">${LOGO[n.logo]}</g>
-      <text class="name" id="name-${id}" x="${tx}" y="${n.cy - 2}">${n.name}</text>
-      <text class="role" id="role-${id}" x="${tx}" y="${n.cy + 11}">${n.role}</text>
-    </g>`;
-  }
+  s += `<g id="prov-edges"></g>`;                  // provider edges, filled per run
+  for (const id in N) s += nodeSvg(id, N[id]);
+  s += `<g id="prov-boxes"></g>`;                  // provider boxes, filled per run
   scene.innerHTML = s;
+}
+
+/** A horizontal card (logo left, name + role right) — used for the fixed nodes. */
+function nodeSvg(id, n) {
+  const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
+  const lx = x + 9, ly = y + (n.h - 24) / 2, tx = lx + 32;
+  return `<g id="n-${id}">
+    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="11"/>
+    <g transform="translate(${lx},${ly})">${LOGO[n.logo]}</g>
+    <text class="name" id="name-${id}" x="${tx}" y="${n.cy - 2}">${n.name}</text>
+    <text class="role" id="role-${id}" x="${tx}" y="${n.cy + 11}">${n.role}</text>
+  </g>`;
+}
+
+/** A compact card (logo top, name + role centered) — for the N provider boxes. */
+function provSvg(id, n) {
+  const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
+  return `<g id="n-${id}">
+    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="10"/>
+    <g transform="translate(${n.cx - 12},${y + 6})">${LOGO.cloudflare}</g>
+    <text class="name" id="name-${id}" x="${n.cx}" y="${y + 42}" text-anchor="middle" style="font-size:8.5px">${n.name}</text>
+    <text class="role" id="role-${id}" x="${n.cx}" y="${y + 52}" text-anchor="middle" style="font-size:7.5px">${n.role}</text>
+  </g>`;
+}
+
+/** Lay out N provider boxes across the Cloudflare lane and wire their edges. */
+function layoutProviders(nodes) {
+  const list = nodes.slice(0, 10);
+  providerCount = list.length;
+  PROV = list.map((_, i) => `p${i}`);
+  const gap = 4, m = 8, cy = 352, h = 56;
+  const w = Math.max(34, Math.min(88, (380 - 2 * m - gap * (list.length - 1)) / Math.max(list.length, 1)));
+  let edges = "", boxes = "";
+  list.forEach((node, i) => {
+    const id = `p${i}`;
+    N[id] = { cx: m + w / 2 + i * (w + gap), cy, w, h, logo: "cloudflare", name: short(node.provider).slice(0, 10), role: "" };
+    slotOf[node.stepId] = i;
+    for (const [f, t] of [["group", id], [id, "receipt"]]) {
+      const a = anchor(f, t), b = anchor(t, f);
+      edges += `<path id="e-${f}-${t}" class="edge" d="M${a.x},${a.y} L${b.x},${b.y}"/>`;
+    }
+    boxes += provSvg(id, N[id]);
+  });
+  const pe = $("prov-edges"), pb = $("prov-boxes");
+  if (pe) pe.innerHTML = edges;
+  if (pb) pb.innerHTML = boxes;
 }
 
 // ── Scene mutators ──────────────────────────────────────────────────────────
@@ -187,9 +220,7 @@ function apply(e) {
     case "run.started": {
       view.status = "running";
       setCard("agent", "active"); setCard("router", "active"); pulse("agent", "router");
-      const nodes = e.nodes || []; providerCount = Math.min(nodes.length, 4);
-      nodes.slice(0, 4).forEach((n, i) => { slotOf[n.stepId] = i; setName(PROV[i], short(n.provider)); });
-      for (let i = providerCount; i < 4; i++) { const g = $(`n-${PROV[i]}`); if (g) g.style.display = "none"; }
+      layoutProviders(e.nodes || []);   // draw N provider boxes dynamically
       caption(`Agent asks the <b>Router</b> to run the workflow. Nothing paid yet.`);
       break;
     }
