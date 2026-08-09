@@ -1,3 +1,5 @@
+<img src="./logo.svg" alt="AXIS" width="72" align="right" />
+
 # @axis/mcp — AXIS as an MCP tool
 
 An [MCP](https://modelcontextprotocol.io) server that lets any MCP-capable AI

@@ -30,7 +30,10 @@ export function Sidebar() {
 
   return (
     <nav>
-      <h2>AXIS</h2>
+      <h2>
+        <img src="/axis_logo.svg" alt="AXIS" width={26} height={26} style={{ verticalAlign: "middle", marginRight: 8 }} />
+        AXIS
+      </h2>
       <ul>
         {NAV.map((n) => (
           <li key={n.href}><Link href={n.href}>{n.label}</Link></li>

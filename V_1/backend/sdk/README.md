@@ -1,3 +1,5 @@
+<img src="./logo.svg" alt="AXIS" width="72" align="right" />
+
 # axis-pay
 
 Drop-in client for **atomic multi-provider x402 payments** on Algorand. One call
