@@ -38,6 +38,8 @@ back, or nothing settles and the agent is out $0.
 | `pay(workflow, inputs, agentAddress, { budgetUSDC?, chaosStep? })` | quote → budget check → settle → **unified receipt** |
 | `getReceipt(runId)` | fetch a receipt (renders standalone) |
 | `onEvents(runId, cb)` | subscribe to the live event stream |
+| `listWorkflows()` | the workflows/services available to run |
+| `listProjects()` / `createProject(name)` | group runs into projects; pass `projectId` in `pay()` |
 
 Errors are `AxisPayError` with a `.code` (`POLICY_BLOCKED`, `OVER_BUDGET`,
 `QUOTE_FAILED`, …) and `.costedNothing` so you always know if money moved.

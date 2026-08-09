@@ -3,20 +3,22 @@
 A side-panel that turns the AXIS agent's work into a **live animated flowchart**.
 Click *"Should I merge this PR?"* in the console and the panel draws it in real
 time: boxes for every actor (agent wallet, router, spend guard, Neon DB, the
-atomic group, the 4 providers, the facilitator), arrows between them, and **gold
+atomic group, all services, the facilitator), arrows between them, and **gold
 coins that travel along the arrows when money moves** — forward on settle, and
 **backward on a refund**. A plain-language caption narrates each backend step,
 so a viewer sees exactly what the code does and *where state is stored* — without
 reading any code.
 
 What you watch happen, step by step:
-- unpaid **402 probes** fan out to the providers; each box shows its price
+- **all services** (fetched from `/v1/workflows`) are drawn; the ones this run
+  uses light up, the rest are **crossed out (✕)** — never called, never paid
+- unpaid **402 probes** fan out to the used providers; each box shows its price
 - the signed **quote** is stored in **Neon** (caption says so)
 - the **Spend Guard** turns green (pass) or red (blocked → nothing is signed)
 - the **atomic group** forms; the **facilitator** lights up as fee-payer
-- on **settle**, coins fly agent → group → all N providers; txids stored in Neon
-- if a provider fails, its coin travels **backward** to the agent — the on-chain
-  refund, made visible
+- on **settle**, coins fly agent → group → each **used** provider; txids in Neon
+- if a used provider fails, its coin travels **backward** to the agent — the
+  on-chain refund, made visible
 
 It is a pure read-only viewer over the same SSE stream the web console uses
 (`GET /v1/runs/:id/events`). It never signs, never pays, never holds a key.

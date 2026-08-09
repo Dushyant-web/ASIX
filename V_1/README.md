@@ -35,6 +35,29 @@ one signature · one atomic group · one receipt · $0.13
 
 Either every provider gets paid and every result comes back, or nothing settles and the agent is out zero.
 
+## What's built (live on Algorand testnet)
+
+- **9 paid services** across 5 workers, each a distinct USDC payee: `diff-explainer`,
+  `guardrail-checker`, `commit-roaster`, `bug-summarizer` + a toolbox of
+  `code-generator`, `debugger`, `test-writer`, `translator`, `summarizer`.
+- **`deep-review`** — the flagship workflow: **7 providers, 7 distinct payees,
+  one signature, one atomic group.** Any provider that fails to deliver is
+  **refunded on chain**; the run is marked `PARTIAL`.
+- **Spend Policy Guard** (6 rules) — a FAIL means nothing is ever signed.
+- **Facilitator feePayer** (GoPlausible) — the agent needs only USDC, no ALGO.
+- **Auto-retry** on settlement (2 tries, then stop) + a **manual retry** button.
+- **Agent-facing layer:** the `axis-pay` **SDK**, an **MCP server** (Claude /
+  Cursor can atomically pay N x402 APIs natively), and an **autonomous budgeted
+  agent** that picks a service from a goal and refuses anything it can't do.
+- **Console** with projects / refunds / usage dashboards + JWT auth, and a
+  **Chrome Live-Monitor extension** — an animated flowchart showing all services
+  (used ones lit + coins, unused ✕), a live backend terminal, and the receipt.
+- **Red-team:** the 3 x402 attacks that hit any server, blocked **live**; the
+  other 2 are structurally impossible on Algorand.
+
+See [`docs/BRIEF.md`](docs/BRIEF.md) for the full write-up and
+[`docs/FEATURES.md`](docs/FEATURES.md) for how to verify every feature.
+
 ## Why this is only clean on Algorand
 
 This is the core of the submission.
