@@ -67,6 +67,12 @@ const MNEMONIC_ENV: Record<string, string> = {
   "guardrail-checker": "PAY_TO_GUARDRAIL_MNEMONIC",
   "commit-roaster": "PAY_TO_ROASTER_MNEMONIC",
   "bug-summarizer": "PAY_TO_BUGSUM_MNEMONIC",
+  // Toolbox services — each a distinct payee, so each can be refunded on failure.
+  "code-generator": "PAY_TO_TOOL_CODE_MNEMONIC",
+  "debugger": "PAY_TO_TOOL_DEBUG_MNEMONIC",
+  "test-writer": "PAY_TO_TOOL_TEST_MNEMONIC",
+  "translator": "PAY_TO_TOOL_TRANSLATE_MNEMONIC",
+  "summarizer": "PAY_TO_TOOL_SUMMARIZE_MNEMONIC",
 };
 
 /** After settle: run providers in DAG order, compensate failures, finalize. */
