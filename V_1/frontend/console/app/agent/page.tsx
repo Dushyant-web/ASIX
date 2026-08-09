@@ -6,6 +6,19 @@ import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, ReceiptStrip, Out
 import { ProjectPicker } from "../../components/ProjectPicker.tsx";
 import { isTerminal } from "../../lib/state-machine.ts";
 
+/** Pull the human-readable text out of a provider's result preview (which is JSON). */
+function readable(preview: string): string {
+  try {
+    const o = JSON.parse(preview);
+    if (o && typeof o === "object") {
+      return Object.values(o).map((v) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))).join("\n\n");
+    }
+    return String(o);
+  } catch {
+    return preview;
+  }
+}
+
 export default function AgentPage() {
   const [goal, setGoal] = useState(
     "Should I merge this pull request? The change increases the request timeout from 10 seconds to 60 seconds.",
@@ -68,6 +81,17 @@ export default function AgentPage() {
       {runId ? (
         <>
           <Outcome view={view} />
+          {Object.values(view.nodes).some((n) => n.preview) && (
+            <section>
+              <h2>Results</h2>
+              {Object.values(view.nodes).filter((n) => n.preview).map((n) => (
+                <div key={n.stepId}>
+                  <b>{n.provider}</b>
+                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{readable(n.preview!)}</pre>
+                </div>
+              ))}
+            </section>
+          )}
           <ProtocolRail view={view} />
           <PolicyPanel view={view} />
           <WorkflowGraph view={view} />
