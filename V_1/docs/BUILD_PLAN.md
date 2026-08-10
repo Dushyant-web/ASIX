@@ -354,7 +354,7 @@ What the judge actually looks at. 20% of the score is seen through this.
 
 - Next.js 15 App Router, Tailwind v4, shadcn/ui
 - `lib/useRunStream.ts` — `EventSource` hook consuming `GET /v1/runs/:id/events`
-- **`page.tsx`** — the single button: *"Should I merge this PR?"*
+- **`page.tsx`** — the single button: *"Run full review"*
 - `WorkflowGraph.tsx` — DAG nodes with live per-step status (pending → paid → running → delivered / compensated)
 - `ChallengeCard.tsx` — the four 402s as they arrive, each showing price and payee
 - `GroupPanel.tsx` — one group id, four txids, each an AlgoExplorer link
@@ -526,7 +526,7 @@ involved. If this is right, the UI cannot desync from the protocol.
 Not just the happy path. Each screen must define: empty · loading · streaming ·
 success · policy-blocked · simulation-failed · PARTIAL (refunded) · connection lost.
 
-- `/` — the demo screen, one button: *"Should I merge this PR?"*
+- `/` — the demo screen, one button: *"Run full review"*
 - `/runs/:id` — live run view
 - `/receipts/:id` — the unified receipt (must render standalone; a judge may open it cold)
 - `/policy` — ceilings, headroom, kill switch
@@ -750,7 +750,7 @@ Change four variables only: `NETWORK`, `ALGOD_URL`, `INDEXER_URL`, `USDC_ASA_ID`
 > "AXIS turns N paid API calls into one all-or-nothing payment. One signature, one atomic group, one receipt. Either everyone gets paid and every result comes back, or nothing settles and the agent is out zero."
 
 **0:45 — Click the button (60 s)**
-Click **"Should I merge this PR?"** and narrate the live console:
+Click **"Run full review"** and narrate the live console:
 - "Four unpaid probes go out — here are four `402` challenges from four independent providers, each stating its own price. **Nothing has been paid.**"
 - "The Spend Policy Guard evaluates the quote — ceiling, per-provider cap, hourly velocity. It passes with headroom. If it failed, no group would ever be built."
 - "One atomic group, four payment legs, **four different addresses**. Simulation runs first — a dry run that catches failures for free."

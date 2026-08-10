@@ -10,6 +10,9 @@
  */
 import { buildQuote, persistQuote } from "./quote.ts";
 import { execute } from "./execute.ts";
+import { projectHeadroomMicro } from "./receipt.ts";
+import { db } from "../db/client.ts";
+import { runs } from "../db/schema.ts";
 import { WORKFLOWS, type WorkflowDef } from "../workflows/pr-review.ts";
 import { agentAccount } from "../chain/client.ts";
 import { emit } from "../bus.ts";
@@ -93,35 +96,85 @@ async function decide(cfg: Config, goal: string): Promise<Decision> {
 /**
  * Run the agent on a pre-minted runId. Fire-and-forget: it emits events on that
  * runId so the console (and the extension, via /v1/runs/latest) animate it live.
+ *
+ * Budget is automatic, not typed in: when the run is tagged to a project with
+ * its own budget, the ceiling is whatever headroom that project has left
+ * (budget minus what it has already spent). No project, or a project with no
+ * budget set, means no client ceiling at all — the server's spend-policy
+ * limits (per-workflow, per-provider, hourly, velocity) are the backstop, the
+ * same as they are for every other run. An explicit `budgetUSDC` still wins
+ * when given, for callers (MCP, scripts) that want their own hard cap.
  */
-export async function runAgentInline(runId: string, goal: string, budgetUSDC: number, cfg: Config, projectId?: string): Promise<void> {
+/**
+ * Record a run that ended without spending anything — a refusal, a policy
+ * block, an internal error. These used to leave no trace at all, so the
+ * console showed nothing and a correct refusal was indistinguishable from a
+ * broken integration. A run that cost $0 is still a run; the ledger should
+ * say "asked, declined, paid nothing" rather than stay silent.
+ */
+async function recordZeroCostRun(
+  cfg: Config, runId: string, agentAddress: string,
+  what: { workflow: string; code: string; message: string; projectId?: string; apiKey?: string },
+): Promise<void> {
+  try {
+    await db(cfg.DATABASE_URL).insert(runs).values({
+      id: runId,
+      quoteId: null,                       // never got as far as a quote
+      workflow: what.workflow,
+      agentAddress,
+      status: "FAILED",
+      projectId: what.projectId ?? null,
+      apiKey: what.apiKey ?? null,
+      totalMicro: 0n,
+      refundedMicro: 0n,
+      error: { code: what.code, message: what.message, costedNothing: true },
+      finishedAt: new Date(),
+    });
+  } catch { /* the ledger entry is best-effort; never mask the real outcome */ }
+}
+
+export async function runAgentInline(runId: string, goal: string, cfg: Config, projectId?: string, apiKey?: string, budgetUSDC?: number): Promise<void> {
+  const agentAddrForRecord = String(agentAccount(cfg).agent.addr);
   try {
     const agentAddr = String(agentAccount(cfg).agent.addr);
     const decision = await decide(cfg, goal);
 
     // Honesty gate: no service fits the goal → refuse, pay NOTHING.
     if ("reject" in decision) {
-      emit(runId, { type: "run.error", code: "NO_SUITABLE_SERVICE", message: `Can't do this: ${decision.reject}`, costedNothing: true });
+      const message = `Can't do this: ${decision.reject}`;
+      await recordZeroCostRun(cfg, runId, agentAddr, {
+        workflow: "refused", code: "NO_SUITABLE_SERVICE", message, projectId, apiKey,
+      });
+      emit(runId, { type: "run.error", code: "NO_SUITABLE_SERVICE", message, costedNothing: true });
       emit(runId, { type: "run.completed", status: "FAILED", receiptId: runId, totalUSDC: "0.00", refundedUSDC: "0.00", durationMs: 0 });
       return;
     }
     const { workflow, inputs } = decision;
-    const budgetMicro = BigInt(Math.round(budgetUSDC * 1e6));
+    const budgetMicro = budgetUSDC != null
+      ? BigInt(Math.round(budgetUSDC * 1e6))
+      : projectId ? await projectHeadroomMicro(cfg.DATABASE_URL, projectId) ?? undefined : undefined;
 
     // Quote through the normal engine — emits run.started + probes + policy on runId.
     const quote = await buildQuote(workflow, agentAddr, inputs, cfg, runId, budgetMicro);
     await persistQuote(quote, inputs, cfg.DATABASE_URL);
 
-    if (quote.policy.verdict === "FAIL" || quote.totalMicro > budgetMicro) {
-      const message = quote.policy.violations[0] ?? `quote $${formatUSDC(quote.totalMicro)} exceeds budget $${budgetUSDC.toFixed(2)}`;
+    if (quote.policy.verdict === "FAIL" || (budgetMicro != null && quote.totalMicro > budgetMicro)) {
+      const message = quote.policy.violations[0] ??
+        `quote $${formatUSDC(quote.totalMicro)} exceeds the project's remaining budget ($${formatUSDC(budgetMicro ?? 0n)})`;
+      await recordZeroCostRun(cfg, runId, agentAddr, {
+        workflow: workflow.id, code: "POLICY_VIOLATION", message, projectId, apiKey,
+      });
       emit(runId, { type: "run.error", code: "POLICY_VIOLATION", message, costedNothing: true });
       emit(runId, { type: "run.completed", status: "FAILED", receiptId: runId, totalUSDC: "0.00", refundedUSDC: "0.00", durationMs: 0 });
       return;
     }
 
     // Within budget and policy — settle atomically via the normal execute path.
-    await execute(quote.quoteId, cfg, runId, undefined, projectId);
+    await execute(quote.quoteId, cfg, runId, undefined, projectId, apiKey);
   } catch (e) {
+    await recordZeroCostRun(cfg, runId, agentAddrForRecord, {
+      workflow: "failed", code: "INTERNAL", message: (e as Error).message, projectId, apiKey,
+    });
     emit(runId, { type: "run.error", code: "INTERNAL", message: (e as Error).message, costedNothing: true });
     emit(runId, { type: "run.completed", status: "FAILED", receiptId: runId, totalUSDC: "0.00", refundedUSDC: "0.00", durationMs: 0 });
   }

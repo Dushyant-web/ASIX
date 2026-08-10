@@ -1,44 +1,35 @@
 "use client";
-import { useState } from "react";
-import { api } from "../../lib/api.ts";
+import { useEffect, useState } from "react";
+import { api, type ProjectSummary } from "../../lib/api.ts";
 import { useRunStream } from "../../lib/useRunStream.ts";
 import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, ReceiptStrip, Outcome, EventLog } from "../../components/RunView.tsx";
-import { ProjectPicker } from "../../components/ProjectPicker.tsx";
-import { AllServices } from "../../components/AllServices.tsx";
 import { isTerminal } from "../../lib/state-machine.ts";
 
-/** Pull the human-readable text out of a provider's result preview (which is JSON). */
-function readable(preview: string): string {
-  try {
-    const o = JSON.parse(preview);
-    if (o && typeof o === "object") {
-      return Object.values(o).map((v) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))).join("\n\n");
-    }
-    return String(o);
-  } catch {
-    return preview;
-  }
-}
-
 export default function AgentPage() {
-  const [goal, setGoal] = useState(
-    "Should I merge this pull request? The change increases the request timeout from 10 seconds to 60 seconds.",
-  );
-  const [budget, setBudget] = useState("1.00");
+  const [goal, setGoal] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [retries, setRetries] = useState(0);
   const view = useRunStream(runId);
 
   const streaming = !!runId && !isTerminal(view);
 
-  async function run(e?: React.FormEvent) {
-    e?.preventDefault();
+  useEffect(() => {
+    api.projects().then((r) => {
+      setProjects(r.projects);
+      setProjectId((cur) => cur || r.projects[0]?.id || "");
+    }).catch(() => {});
+  }, []);
+
+  async function run(e: React.FormEvent) {
+    e.preventDefault();
+    if (!goal.trim() || streaming) return;
     setErr(null);
     setRunId(null);
     try {
-      const res = await api.runAgent(goal, Number(budget), projectId || undefined);
+      // No budget field: spend is bounded by AXIS's own policy limits.
+      const res = await api.runAgent(goal.trim(), projectId || undefined);
       setRunId(res.runId);
     } catch (x) {
       setErr((x as { error?: { message?: string } })?.error?.message ?? "could not start the agent");
@@ -47,57 +38,32 @@ export default function AgentPage() {
 
   return (
     <main>
-      <h1>Autonomous agent</h1>
-      <p>Type a task in plain English and set a spending limit. An AI agent then does the buying for you — and it can never spend more than the limit you set.</p>
-      <p><b>What it can do right now:</b> the only service available is a <b>code-review pipeline</b> — give it a code change, diff, or pull request to review. Ask for anything else (e.g. &quot;create an image&quot;) and it will <b>refuse and pay nothing</b>, because no service can do that job.</p>
+      <div className="dash-head">
+        <h1>Autonomous agent</h1>
+      </div>
 
-      <p><b>What happens when you click Run agent:</b></p>
-      <ol>
-        <li>It reads your <b>goal</b> and decides which paid services it needs.</li>
-        <li>It asks each service its price and adds them up (nothing is paid yet).</li>
-        <li>It compares the total to your <b>budget</b>. If it&apos;s too expensive, it stops and pays <b>nothing</b>.</li>
-        <li>If it fits, it pays every service in <b>one single payment</b> and shows you their answers.</li>
-      </ol>
-
-      <form onSubmit={(e) => { setRetries(0); run(e); }}>
-        <p>
-          <label><b>Goal</b> — describe the task in plain English:<br />
-            <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} cols={70} required />
-          </label>
-        </p>
-        <p>
-          <label><b>Budget</b> — the most it may spend (USDC):{" "}
-            <input type="number" step="0.01" min="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} required />
-          </label>
-        </p>
-        <p>
-          <b>Project</b> (optional) — tag this run to a project:{" "}
-          <ProjectPicker value={projectId} onChange={setProjectId} />
-        </p>
-        <button type="submit" disabled={streaming}>{streaming ? "agent working…" : "Run agent"}</button>
+      <form onSubmit={run} className="card stack">
+        <textarea
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          rows={3}
+          placeholder="Describe a task in plain English — e.g. review this diff: bumped the request timeout from 10s to 60s"
+          required
+          style={{ width: "100%" }}
+        />
+        <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">— no project —</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button type="submit" disabled={streaming || !goal.trim()}>{streaming ? "working…" : "Run agent"}</button>
+          {err ? <span className="pill pill-bad">{err}</span> : null}
+        </div>
       </form>
-      {err ? <p>error: {err}</p> : null}
-
-      <p>This task costs about <b>$0.14</b>. Set the budget to <b>$0.05</b> and it will refuse (too expensive); set it to <b>$1.00</b> and it will pay and show the results.</p>
 
       {runId ? (
         <>
           <Outcome view={view} />
-          {isTerminal(view) && retries < 2
-            ? <p><button type="button" onClick={() => { setRetries((r) => r + 1); run(); }}>Manual retry ({2 - retries} left)</button> — re-run this goal</p>
-            : null}
-          <AllServices view={view} />
-          {Object.values(view.nodes).some((n) => n.preview) && (
-            <section>
-              <h2>Results</h2>
-              {Object.values(view.nodes).filter((n) => n.preview).map((n) => (
-                <div key={n.stepId}>
-                  <b>{n.provider}</b>
-                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{readable(n.preview!)}</pre>
-                </div>
-              ))}
-            </section>
-          )}
           <ProtocolRail view={view} />
           <PolicyPanel view={view} />
           <WorkflowGraph view={view} />
@@ -105,7 +71,7 @@ export default function AgentPage() {
           <ReceiptStrip view={view} />
           <EventLog view={view} />
           {isTerminal(view) && view.status === "FAILED" && view.error
-            ? <p><b>Agent stopped — you paid nothing.</b> {view.error.message}</p>
+            ? <p><b>Stopped — you paid nothing.</b> {view.error.message}</p>
             : null}
           {isTerminal(view) && view.receiptId && view.status !== "FAILED"
             ? <p><a href={`/receipts/${view.receiptId}`}>open the full unified receipt</a></p>

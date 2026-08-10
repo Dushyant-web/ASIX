@@ -66,8 +66,14 @@ const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export interface AuthResult {
   token: string;
+  /** Per-account API key — the console stores it and the extension uses it to
+   *  see only this account's runs/receipts. */
+  apiKey: string;
   user: { id: string; email: string };
 }
+
+/** A fresh account API key. Prefixed so it's obvious what it is if it leaks. */
+const newApiKey = (): string => `axis_${randomBytes(24).toString("hex")}`;
 
 export async function signup(email: string, password: string, databaseUrl: string, secret: string): Promise<AuthResult> {
   const e = email.trim().toLowerCase();
@@ -77,8 +83,9 @@ export async function signup(email: string, password: string, databaseUrl: strin
   const existing = (await database.select().from(users).where(eq(users.email, e)))[0];
   if (existing) throw new AxisError("EMAIL_TAKEN", "an account with this email already exists");
   const id = `usr_${randomUUID().slice(0, 12)}`;
-  await database.insert(users).values({ id, email: e, passwordHash: hashPassword(password) });
-  return { token: signJwt({ sub: id, email: e }, secret), user: { id, email: e } };
+  const apiKey = newApiKey();
+  await database.insert(users).values({ id, email: e, passwordHash: hashPassword(password), apiKey });
+  return { token: signJwt({ sub: id, email: e }, secret), apiKey, user: { id, email: e } };
 }
 
 export async function login(email: string, password: string, databaseUrl: string, secret: string): Promise<AuthResult> {
@@ -90,5 +97,23 @@ export async function login(email: string, password: string, databaseUrl: string
   if (!user || !verifyPassword(password, user.passwordHash)) {
     throw new AxisError("INVALID_CREDENTIALS", "email or password is incorrect");
   }
-  return { token: signJwt({ sub: user.id, email: e }, secret), user: { id: user.id, email: e } };
+  // Backfill an API key for accounts created before keys existed.
+  let apiKey = user.apiKey;
+  if (!apiKey) {
+    apiKey = newApiKey();
+    await database.update(users).set({ apiKey }).where(eq(users.id, user.id));
+  }
+  return { token: signJwt({ sub: user.id, email: e }, secret), apiKey, user: { id: user.id, email: e } };
+}
+
+/**
+ * Who does this API key belong to? A key spends real USDC, so any client
+ * acting on it — the console, the extension, an MCP agent like Claude — must
+ * be able to say WHOSE money it is about to move. Returns null for an unknown
+ * key, which is also how a caller tells a bad key from a merely empty account.
+ */
+export async function accountForKey(apiKey: string, databaseUrl: string): Promise<{ id: string; email: string } | null> {
+  const row = (await db(databaseUrl).select({ id: users.id, email: users.email })
+    .from(users).where(eq(users.apiKey, apiKey)))[0];
+  return row ?? null;
 }

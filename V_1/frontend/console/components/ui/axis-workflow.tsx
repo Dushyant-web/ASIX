@@ -19,8 +19,8 @@ import { useEffect, useState } from "react";
  * quarter of the height.
  *
  * The run is real: prices are each provider's own `priceUSDC`, the fee is
- * ROUTING_FEE_MICRO, and 5-of-16 slots is four payees plus the facilitator's
- * fee-payer slot. The fourth provider fails on purpose, because the refund
+ * ROUTING_FEE_MICRO, and 10-of-16 slots is nine payees plus the facilitator's
+ * fee-payer slot. The last provider fails on purpose, because the refund
  * leg is the thing worth showing.
  *
  * Scene changes run on setTimeout, motion on CSS transition — decoupled, so
@@ -36,22 +36,22 @@ type Scene = {
 
 const SCENES: Scene[] = [
   { id: "pick", label: "workflow", dur: 2800, cx: 145, cy: 58, click: true,
-    title: "Run a workflow", sub: "The CI pipeline asks for pr-review — four paid endpoints.",
+    title: "Run a workflow", sub: "The CI pipeline asks for deep-review — nine paid endpoints.",
     foot: "9 workflows · nothing paid yet" },
   { id: "quote", label: "quote", dur: 3800, cx: 560, cy: 190,
-    title: "Quote", sub: "The router probes each endpoint. Every price comes from its own 402.",
-    foot: "4 challenges read · costs $0" },
+    title: "Quote", sub: "The router probes all nine endpoints. Every price comes from its own 402.",
+    foot: "9 challenges read · costs $0" },
   { id: "policy", label: "policy", dur: 3000, cx: 145, cy: 232,
     title: "Spend policy", sub: "Six rules run before a group is even built.",
     foot: "a failure here costs exactly $0" },
   { id: "sign", label: "sign", dur: 2800, cx: 145, cy: 268, click: true,
-    title: "Authorise", sub: "Four legs become one atomic group. One signature covers all of it.",
-    foot: "5 of 16 slots · 4 payees + 1 fee payer" },
+    title: "Authorise", sub: "Nine legs become one atomic group. One signature covers all of it.",
+    foot: "10 of 16 slots · 9 payees + 1 fee payer" },
   { id: "settle", label: "settle", dur: 3200, cx: 300, cy: 530,
     title: "Settle", sub: "The group commits on Algorand — all of it, or none of it.",
     foot: "~3s finality · the agent never holds ALGO" },
   { id: "deliver", label: "deliver", dur: 3600, cx: 560, cy: 350,
-    title: "Deliver", sub: "Three providers return work. The fourth takes payment and fails.",
+    title: "Deliver", sub: "Eight providers return work. The ninth takes payment and fails.",
     foot: "payment atomicity is not delivery" },
   { id: "receipt", label: "receipt", dur: 5400, cx: 420, cy: 790, click: true,
     title: "Receipt", sub: "The failed leg is reversed on-chain and lands in one receipt.",
@@ -62,12 +62,18 @@ const PROV = [
   { n: "diff · explain", p: "/diff/explain", a: "0.03", tx: "K7X2…9QF", out: "312 tokens" },
   { n: "guardrail · check", p: "/guardrail/check", a: "0.02", tx: "M3B8…1LD", out: "risk 0.04" },
   { n: "commit · roast", p: "/commit/roast", a: "0.03", tx: "P9Z4…7TA", out: "5 rewrites" },
+  { n: "summarize", p: "/summarize", a: "0.02", tx: "T5K9…2WQ", out: "TL;DR" },
+  { n: "test · write", p: "/test/write", a: "0.04", tx: "J8L1…6RE", out: "7 cases" },
+  { n: "code · generate", p: "/code/generate", a: "0.05", tx: "H4D7…8YU", out: "patch" },
+  { n: "debug · fix", p: "/debug/fix", a: "0.04", tx: "N6F3…4XC", out: "2 fixes" },
+  { n: "translate", p: "/translate", a: "0.02", tx: "Q1S8…5ZB", out: "plain English" },
   { n: "bug · summarize", p: "/bug/summarize", a: "0.05", tx: "R2C6…3VN", out: "502 — no result", fails: true },
 ];
 
-/* Geometry in one place, so edges stay anchored to node edges. */
-const PY = [64, 148, 232, 316];
-const PH = 72;
+/* Geometry in one place, so edges stay anchored to node edges. Nine rows fit
+   the 402-tall provider box at a 42px pitch. */
+const PH = 36;
+const PY = PROV.map((_, i) => 40 + i * 42);
 const PMID = PY.map((y) => y + PH / 2);
 
 export function AxisWorkflow() {
@@ -184,26 +190,26 @@ export function AxisWorkflow() {
             {i === 3 && (
               <g>
                 <rect className={`g-btn ${clicking ? "pressed" : ""}`} x={48} y={250} width={214} height={34} rx={8} />
-                <text className="g-btn-txt" x={155} y={272} textAnchor="middle">Pay $0.14 · sign once</text>
+                <text className="g-btn-txt" x={155} y={272} textAnchor="middle">Pay $0.31 · sign once</text>
               </g>
             )}
 
             {/* ── providers ─────────────────────────────────────────── */}
-            <rect className={`g-group ${composed ? "formed" : ""}`} x={356} y={22} width={574} height={380} rx={14} />
-            <text className="g-tag" x={374} y={48}>{composed ? "ATOMIC GROUP · 4 LEGS" : "PROVIDERS · x402"}</text>
+            <rect className={`g-group ${composed ? "formed" : ""}`} x={356} y={22} width={574} height={400} rx={14} />
+            <text className="g-tag" x={374} y={48}>{composed ? "ATOMIC GROUP · 9 LEGS" : "PROVIDERS · x402"}</text>
             {PROV.map((p, k) => {
               const bad = p.fails && delivered;
               const ok = settled && !bad;
               return (
                 <g key={p.n}>
                   <rect className={`g-node ${bad ? "bad" : ok ? "done" : priced ? "" : "idle"}`}
-                    x={374} y={PY[k]} width={538} height={PH} rx={10} />
-                  <text className="g-lbl" x={394} y={PY[k] + 29}>{p.n}</text>
-                  <text className="g-sub" x={394} y={PY[k] + 52}>{provSub(k)}</text>
-                  <text className={`g-amt ${bad ? "paid" : ok ? "ok" : ""}`} x={894} y={PY[k] + 29} textAnchor="end">
+                    x={374} y={PY[k]} width={538} height={PH} rx={9} />
+                  <text className="g-lbl" x={392} y={PY[k] + 23}>{p.n}</text>
+                  <text className="g-sub" x={600} y={PY[k] + 23}>{provSub(k)}</text>
+                  <text className={`g-amt ${bad ? "paid" : ok ? "ok" : ""}`} x={830} y={PY[k] + 23} textAnchor="end">
                     ${p.a}
                   </text>
-                  <text className="g-tag" x={894} y={PY[k] + 52} textAnchor="end"
+                  <text className="g-tag" x={906} y={PY[k] + 23} textAnchor="end"
                     fill={bad ? "#f5a623" : ok ? "#50e3c2" : undefined}>
                     {provStatus(k)}
                   </text>
@@ -225,7 +231,7 @@ export function AxisWorkflow() {
             <text className="g-sub" x={510} y={560}>facilitator pays the fees</text>
 
             {/* ── receipt ───────────────────────────────────────────── */}
-            <rect className={`g-node ${done ? "on" : "idle"}`} x={30} y={650} width={900} height={250} rx={14} />
+            <rect className={`g-node ${done ? "on" : "idle"}`} x={30} y={650} width={900} height={266} rx={14} />
             <text className="g-tag" x={48} y={678}>RECEIPT</text>
             <text className="g-tag" x={912} y={678} textAnchor="end" fill={done ? "#f5a623" : undefined}>
               {done ? "PARTIAL" : "PENDING"}
@@ -233,18 +239,18 @@ export function AxisWorkflow() {
             <g className={`g-fade ${done ? "in" : ""}`}>
               {PROV.map((p, k) => (
                 <g key={p.n}>
-                  <text className="g-sub" x={52} y={712 + k * 30} fill="#ededed">{p.n}</text>
-                  <text className="g-sub" x={520} y={712 + k * 30}>{p.tx}</text>
-                  <text className="g-amt" x={908} y={712 + k * 30} textAnchor="end"
+                  <text className="g-sub" x={52} y={700 + k * 18} fill="#ededed">{p.n}</text>
+                  <text className="g-sub" x={520} y={700 + k * 18}>{p.tx}</text>
+                  <text className="g-amt" x={908} y={700 + k * 18} textAnchor="end"
                     fill={p.fails ? "#f5a623" : undefined}>${p.a}</text>
                 </g>
               ))}
-              <text className="g-sub" x={52} y={840} fill="#f5a623">↩ compensation</text>
-              <text className="g-sub" x={520} y={840}>W8N1…5HJ</text>
-              <text className="g-amt" x={908} y={840} textAnchor="end" fill="#f5a623">−$0.05</text>
-              <line x1={48} y1={858} x2={912} y2={858} stroke="rgba(255,255,255,0.1)" />
-              <text className="g-sub" x={52} y={882}>settled $0.14 · refunded $0.05</text>
-              <text className="g-amt" x={908} y={882} textAnchor="end">net $0.09</text>
+              <text className="g-sub" x={52} y={872} fill="#f5a623">↩ compensation</text>
+              <text className="g-sub" x={520} y={872}>W8N1…5HJ</text>
+              <text className="g-amt" x={908} y={872} textAnchor="end" fill="#f5a623">−$0.05</text>
+              <line x1={48} y1={884} x2={912} y2={884} stroke="rgba(255,255,255,0.1)" />
+              <text className="g-sub" x={52} y={902}>settled $0.31 · refunded $0.05</text>
+              <text className="g-amt" x={908} y={902} textAnchor="end">net $0.26</text>
             </g>
 
             {/* ── cursor ────────────────────────────────────────────── */}

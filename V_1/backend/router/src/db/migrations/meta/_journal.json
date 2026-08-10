@@ -22,6 +22,34 @@
       "when": 1786223221279,
       "tag": "0002_omniscient_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786342969421,
+      "tag": "0003_exotic_ogun",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786348547117,
+      "tag": "0004_tearful_archangel",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786353322552,
+      "tag": "0005_elite_psylocke",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786366411706,
+      "tag": "0006_tan_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

@@ -5,13 +5,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { session } from "../lib/api";
 
 const NAV: { href: string; label: string; ico: string; section: string }[] = [
-  { href: "/dashboard", label: "Run workflow", ico: "▶", section: "Run" },
+  { href: "/projects", label: "Projects", ico: "▦", section: "Run" },
   { href: "/agent", label: "Autonomous agent", ico: "◆", section: "Run" },
+  { href: "/workflow", label: "Workflow", ico: "▶", section: "Run" },
   { href: "/failure", label: "Test failure", ico: "↺", section: "Prove it" },
   { href: "/attack", label: "Start attack", ico: "⚔", section: "Prove it" },
   { href: "/receipts", label: "Receipts", ico: "≣", section: "Ledger" },
   { href: "/refunds", label: "Refunds", ico: "↩", section: "Ledger" },
-  { href: "/projects", label: "Projects", ico: "▦", section: "Ledger" },
   { href: "/protocol", label: "How it works", ico: "?", section: "Learn" },
 ];
 
@@ -37,39 +37,82 @@ function Logo() {
   );
 }
 
+/** Never render the whole key. It spends real USDC, and this sits on screen
+ *  through every demo and screen-share — masked is the only safe default. */
+const mask = (k: string) => `${k.slice(0, 9)}…${k.slice(-4)}`;
+
 export function Sidebar() {
   const [email, setEmail] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   // Read the session on the client only (localStorage is not on the server).
-  useEffect(() => { setEmail(session.email()); }, []);
+  useEffect(() => { setEmail(session.email()); setApiKey(session.apiKey()); }, []);
 
   function logout() {
     session.clear();
     setEmail(null);
+    setApiKey(null);
     router.push("/login");
+  }
+
+  function copyKey() {
+    if (!apiKey) return;
+    navigator.clipboard?.writeText(apiKey);   // the FULL key goes to the clipboard
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
   }
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <nav>
-      <h2>
-        <img src="/axis_logo.svg" alt="AXIS" width={26} height={26} style={{ verticalAlign: "middle", marginRight: 8 }} />
-        AXIS
-      </h2>
-      <ul>
-        {NAV.map((n) => (
-          <li key={n.href}><Link href={n.href}>{n.label}</Link></li>
-        ))}
-      </ul>
-      {email ? (
-        <p>{email} · <button type="button" onClick={logout}>log out</button></p>
-      ) : (
-        <p><Link href="/login">Log in</Link> · <Link href="/signup">Sign up</Link></p>
-      )}
+    <nav className="sidebar">
+      <Link href="/projects" className="sidebar-brand">
+        <Logo />
+        <span className="name">AX<b>I</b>S</span>
+      </Link>
+
+      {SECTIONS.map((section) => (
+        <div key={section}>
+          <div className="sidebar-section">{section}</div>
+          <ul className="sidebar-nav">
+            {NAV.filter((n) => n.section === section).map((n) => (
+              <li key={n.href}>
+                <Link href={n.href} className={isActive(n.href) ? "active" : ""}>
+                  <span className="ico">{n.ico}</span>
+                  {n.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      <div className="sidebar-foot">
+        {email ? (
+          <>
+            <div className="dim" style={{ marginBottom: 8 }}>{email}</div>
+            {apiKey ? (
+              <div className="keychip" title="API key — copy into the extension or AXIS_API_KEY">
+                <code>{mask(apiKey)}</code>
+                <button type="button" onClick={copyKey} aria-label="Copy API key">
+                  {copied ? "✓" : "copy"}
+                </button>
+              </div>
+            ) : null}
+            <button type="button" onClick={logout}>log out</button>
+          </>
+        ) : (
+          <>
+            <Link href="/login">Log in</Link>
+            {" · "}
+            <Link href="/signup">Sign up</Link>
+          </>
+        )}
+      </div>
     </nav>
   );
 }

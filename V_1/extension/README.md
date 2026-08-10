@@ -1,8 +1,8 @@
 # AXIS Live Monitor — Chrome extension
 
 A side-panel that turns the AXIS agent's work into a **live animated flowchart**.
-Click *"Should I merge this PR?"* in the console and the panel draws it in real
-time: boxes for every actor (agent wallet, router, spend guard, Neon DB, the
+Click *"Run full review"* (or launch the autonomous agent) in the console and the
+panel draws it in real time: boxes for every actor (agent wallet, router, spend guard, Neon DB, the
 atomic group, all services, the facilitator), arrows between them, and **gold
 coins that travel along the arrows when money moves** — forward on settle, and
 **backward on a refund**. A plain-language caption narrates each backend step,
@@ -32,10 +32,17 @@ It is a pure read-only viewer over the same SSE stream the web console uses
 
 ## Use it
 
-- The panel auto-discovers the currently running agent via `GET /v1/runs/latest`
-  and follows it — **no run id to paste**. Just click **"Should I merge this
-  PR?"** in the console and watch the panel fill in live.
-- To point it at a deployed router, type the URL in the box and hit **set**
+- **Connect with your account API key** — that is the only thing the panel
+  needs. Copy it from the console's **Projects** page (the key bar at the top) and
+  paste it in. Until a key is set the panel shows nothing: without one there
+  is no account to follow, and falling back to the router's global latest run
+  would show whatever somebody else happened to be running.
+- With a key set, the panel auto-discovers *your* running agent via
+  `GET /v1/runs/latest?key=…` and follows it — **no run id to paste**. Start a
+  run in the console, or hand a task to Claude over MCP, and it fills in live.
+  It never replays whatever run was already latest when the panel opened —
+  only a run that starts *after* you open it is drawn.
+- To point it at a deployed router, open **advanced** and set the URL
   (stored in `chrome.storage`, default `http://localhost:8080`).
 
 ## How it works

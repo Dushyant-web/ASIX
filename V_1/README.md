@@ -40,9 +40,11 @@ Either every provider gets paid and every result comes back, or nothing settles 
 - **9 paid services** across 5 workers, each a distinct USDC payee: `diff-explainer`,
   `guardrail-checker`, `commit-roaster`, `bug-summarizer` + a toolbox of
   `code-generator`, `debugger`, `test-writer`, `translator`, `summarizer`.
-- **`deep-review`** — the flagship workflow: **7 providers, 7 distinct payees,
-  one signature, one atomic group.** Any provider that fails to deliver is
-  **refunded on chain**; the run is marked `PARTIAL`.
+- **`deep-review`** — the flagship workflow: **all 9 providers, 9 distinct
+  payees, one signature, one atomic group** ($0.31 total). That is 10 of
+  Algorand's 16 group slots once the facilitator's fee payer is counted. Any
+  provider that fails to deliver is **refunded on chain**; the run is marked
+  `PARTIAL`.
 - **Spend Policy Guard** (6 rules) — a FAIL means nothing is ever signed.
 - **Facilitator feePayer** (GoPlausible) — the agent needs only USDC, no ALGO.
 - **Auto-retry** on settlement (2 tries, then stop) + a **manual retry** button.
@@ -192,18 +194,19 @@ no mocks in the money path.
 All settle in **USDC ASA on Algorand Testnet**. Every endpoint exposes
 `GET /health` returning its name, price, and payout address.
 
-## Demo workflow — "Should I merge this PR?"
+## Demo workflow — full code-change review
 
-One button. The `pr-review` reviewer agent runs all four core endpoints, spends
-$0.13 (+$0.01 routing fee = $0.14), and returns a merge verdict.
+One button. The `deep-review` agent runs **all nine services at once**, spends
+$0.30 (+$0.01 routing fee = $0.31), and returns every service's verdict.
 
 The paying user is the **CI pipeline** — a real, non-subscription, pay-per-run business model. A repo that opens 200 PRs a month pays $26 and pays nothing on a quiet month. No seats, no API keys, no signup.
 
-The console shows, live: four 402 challenges → one group ID → four txids on the
+The console shows, live: nine 402 challenges → one group ID → nine txids on the
 [Lora](https://lora.algokit.io/testnet) explorer → one receipt.
 
-**Nine workflows** ship in total — `pr-review` (4 providers), `security-scan`,
-`bug-hunt` (2), `commit-polish`, and five single-step toolbox workflows
+**Ten workflows** ship in total — `deep-review` (all 9 providers),
+`pr-review` (4), `security-scan`, `bug-hunt` (2), `commit-polish`, and five
+single-step toolbox workflows
 (`generate-code`, `debug-error`, `write-tests`, `translate-text`,
 `summarize-text`). `GET /v1/workflows` returns the live list.
 
@@ -367,15 +370,31 @@ and any compensation txids. `/v1/receipts` lists every run from Neon, newest fir
 The router owns the wallet and the protocol; everything below is a thin,
 key-free client on top of it (see `docs/FEATURES.md` for verification commands):
 
-- **`@axis/pay` SDK** (`backend/sdk`) — zero-dependency drop-in: one `pay()` =
-  quote → budget gate → atomic settle → receipt.
-- **MCP server** (`backend/mcp`) — exposes `list_workflows` / `quote_workflow` /
-  `pay_and_run` so Claude Desktop, Cursor, or any MCP agent can atomically pay N
-  x402 APIs natively.
+- **[`axis-pay`](https://www.npmjs.com/package/axis-pay) SDK** (`backend/sdk`,
+  published on npm — `npm install axis-pay`) — zero-dependency drop-in: one
+  `pay()` = quote → budget gate → atomic settle → receipt, or `runAgent(goal)`
+  to skip picking a workflow entirely. Full docs: `backend/sdk/README.md`.
+- **MCP server** (`backend/mcp`) — exposes `list_workflows` / `quote_workflow`
+  / `pay_and_run` / `run_agent` / `create_project` / `list_projects` /
+  `get_run_result` so Claude Desktop, Claude Code, Cursor, or any MCP agent
+  can atomically pay N x402 APIs, or just hand it a plain-English task, natively
+  as tools. Set `AXIS_API_KEY` and every call is scoped to your account — a
+  task given to Claude shows up **live** in your own console (the Workflow
+  page) and the Chrome extension. **Start here:
+  [`docs/USING_WITH_CLAUDE.md`](docs/USING_WITH_CLAUDE.md)** — how to start the
+  router, add your key, and what to type. Server details:
+  `backend/mcp/README.md`.
+- **Automatic project budgets** — give a project a `budgetUSDC` (console
+  Projects page, `axis.createProject(name, budgetUSDC)`, or the `create_project`
+  MCP tool) and every task tagged to it — from the console, the SDK, or an MCP
+  agent — is capped automatically at whatever headroom is left. No project, or
+  a project with no budget, still runs against the router's own spend-policy
+  limits — the same backstop every run gets.
 - **Autonomous budgeted agent** (`backend/agent`) — goal + USDC budget → an LLM
   picks the workflow and pays on its own, budget enforced twice (agent + guard).
 - **Chrome live-monitor extension** (`extension/`) — a side-panel animated
-  flowchart of the real stack with coins flowing on settle and back on refund.
+  flowchart of the real stack with coins flowing on settle and back on refund;
+  opens clean each time, never replaying a run that finished before you opened it.
 - **Security hardening** — the three server-side attacks from *"Five Attacks on
   x402"* (resource binding, single-use claims, no-store caching) are mitigated
   and provable live on the console's **Start attack** page.

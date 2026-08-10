@@ -36,7 +36,7 @@ export interface ExecuteResult {
 
 const explorer = (t: string) => `https://lora.algokit.io/testnet/transaction/${t}`;
 
-export async function execute(quoteId: string, cfg: Config, runId: string, chaosStep?: string, projectId?: string): Promise<ExecuteResult> {
+export async function execute(quoteId: string, cfg: Config, runId: string, chaosStep?: string, projectId?: string, apiKey?: string): Promise<ExecuteResult> {
   const database = db(cfg.DATABASE_URL);
 
   // ── 1. Load the quote ──────────────────────────────────────────────────
@@ -97,7 +97,8 @@ export async function execute(quoteId: string, cfg: Config, runId: string, chaos
 
   // Open the run row now so a crash mid-settle is recoverable.
   const runRow = { id: runId, quoteId, workflow: row.workflow, agentAddress: row.agentAddress,
-    totalMicro: row.totalMicro, status: "PENDING" as const, ...(projectId ? { projectId } : {}) };
+    totalMicro: row.totalMicro, status: "PENDING" as const,
+    ...(projectId ? { projectId } : {}), ...(apiKey ? { apiKey } : {}) };
   await database.insert(runs).values(runRow);
 
   const { algo, agent } = agentAccount(cfg);

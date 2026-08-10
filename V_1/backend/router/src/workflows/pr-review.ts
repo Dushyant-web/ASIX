@@ -1,5 +1,5 @@
 /**
- * The demo workflow: "Should I merge this PR?"
+ * The demo workflow: a full code-change review.
  *
  * Four steps. `bugsum` consumes `diff`'s output, so the DAG is real — three run
  * in parallel, then one. All four providers are on distinct payout addresses,
@@ -110,11 +110,15 @@ export const TRANSLATE_TEXT = toolbox("translate-text", "translator", "/translat
 export const SUMMARIZE_TEXT = toolbox("summarize-text", "summarizer", "/summarize", { text: "${inputs.text}" });
 
 /**
- * DEEP REVIEW — the flagship BIGGER atomic group. Seven providers, seven
- * DISTINCT payees, all running at once on one PR: explain, safety-check, commit
- * critique, bug hunt, TL;DR, tests, and a suggested implementation. One
+ * DEEP REVIEW — the flagship BIGGER atomic group. EVERY provider AXIS knows,
+ * nine DISTINCT payees, all running at once on one change: explain,
+ * safety-check, commit critique, bug hunt, TL;DR, tests, a suggested
+ * implementation, a debug pass, and a plain-English translation. One
  * signature, all-or-nothing, and any provider that fails to deliver is refunded
  * on chain. No step depends on another, so every leg runs simultaneously.
+ *
+ * Nine legs plus the facilitator's fee payer is 10 of Algorand's 16-slot group
+ * limit — the group stays valid with room to spare.
  */
 export const DEEP_REVIEW: WorkflowDef = {
   id: "deep-review",
@@ -126,6 +130,8 @@ export const DEEP_REVIEW: WorkflowDef = {
     { id: "summary", provider: "summarizer", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/summarize", input: { text: "${inputs.diff}" } },
     { id: "tests", provider: "test-writer", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/test/write", input: { code: "${inputs.diff}" } },
     { id: "suggest", provider: "code-generator", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/code/generate", input: { task: "${inputs.diff}" } },
+    { id: "debug", provider: "debugger", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/debug/fix", input: { error: "${inputs.diff}" } },
+    { id: "translate", provider: "translator", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/translate", input: { text: "${inputs.diff}", language: "plain English" } },
   ],
 };
 

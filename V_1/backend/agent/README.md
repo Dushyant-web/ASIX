@@ -19,11 +19,11 @@ Example run:
 ```
 🤖 goal: Review this PR: ...
 💰 budget: $1.00
-🧠 chose workflow "pr-review" with inputs: diff, commitMessage
-🧾 quote: $0.14  ·  spend policy: PASS
+🧠 chose workflow "deep-review" with inputs: diff, commitMessage
+🧾 quote: $0.31  ·  spend policy: PASS
 ✅ within budget — paying atomically…
-💸 SETTLED — $0.13 across 4 providers (round 66110504)
-📝 <LLM summary of the four providers' results>
+💸 SETTLED — $0.30 across 9 providers (round 66110504)
+📝 <LLM summary of all nine providers' results>
 ```
 
 Built on [`@axis/pay`](../sdk). Zero extra dependencies — env is loaded with

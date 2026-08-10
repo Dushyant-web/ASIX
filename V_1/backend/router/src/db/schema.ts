@@ -42,13 +42,18 @@ export const quotes = pgTable(
 export const runs = pgTable("runs", {
   /** Also the receipt id — one run, one receipt, one identifier. */
   id: text("id").primaryKey(),
-  quoteId: text("quote_id").notNull().references(() => quotes.id),
+  /** Null when the run never reached a quote — an agent that refused the goal,
+   *  or a policy block. Those runs still belong in the ledger: "we tried, and
+   *  it cost $0" is information, and an invisible refusal looks like a bug. */
+  quoteId: text("quote_id").references(() => quotes.id),
   workflow: text("workflow").notNull(),
   agentAddress: text("agent_address").notNull(),
   groupId: text("group_id"),
   status: text("status").notNull().default("PENDING"),
   /** Optional grouping — which project this run belongs to. */
   projectId: text("project_id"),
+  /** Which account (API key) created this run — for per-account scoping. */
+  apiKey: text("api_key"),
   totalMicro: micro("total_micro").notNull(),
   refundedMicro: micro("refunded_micro").notNull().default(sql`0`),
   confirmedRound: bigint("confirmed_round", { mode: "bigint" }),
@@ -126,6 +131,15 @@ export const projects = pgTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   agentAddress: text("agent_address"),
+  /** Which account (API key) owns this project. Set at creation so a brand-new
+   *  project shows up for its owner immediately, before it has any runs. */
+  apiKey: text("api_key"),
+  /** Optional total spend ceiling for this project. When set, the autonomous
+   *  agent needs no per-run budget: each task automatically gets whatever
+   *  headroom is left (budget minus this project's gross spend so far). Null
+   *  means no project-level ceiling — the server's spend-policy limits are
+   *  still enforced regardless. */
+  budgetMicro: micro("budget_micro"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -137,5 +151,8 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  /** Per-account API key. Scopes runs/receipts/projects to THIS user; the
+   *  extension uses it to see only this account's data. */
+  apiKey: text("api_key").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

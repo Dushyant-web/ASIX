@@ -15,8 +15,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>
+    // Browser extensions inject attributes onto <html>/<body> before React
+    // hydrates (ColorZilla's cz-shortcut-listen, Grammarly's data-gr-*). React
+    // sees a mismatch it "won't patch up" and can bail out of hydrating — which
+    // silently kills every useEffect, and with them the polling that keeps the
+    // dashboard live. Suppressing here covers only these two elements' own
+    // attributes, not their subtree, so real mismatches still surface.
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <AppFrame>{children}</AppFrame>
       </body>
     </html>

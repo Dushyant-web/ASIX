@@ -28,8 +28,15 @@ const BUFFER_MAX = 200;
 let latest: string | null = null;
 export const latestRunId = (): string | null => latest;
 
+// Runs that have reached a terminal event. A monitor opening mid-run should
+// follow it; one opening after it ended should not replay it. Only the router
+// knows which is which, so it says so.
+const finished = new Set<string>();
+export const isFinished = (runId: string): boolean => finished.has(runId);
+
 export function emit(runId: string, raw: Raw): RunEvent {
-  if (raw.type === "run.started") latest = runId;
+  if (raw.type === "run.started") { latest = runId; finished.delete(runId); }
+  if (raw.type === "run.completed") finished.add(runId);
   const seq = (seqs.get(runId) ?? -1) + 1;
   seqs.set(runId, seq);
   const event = { ...raw, seq, at: new Date().toISOString(), runId } as RunEvent;

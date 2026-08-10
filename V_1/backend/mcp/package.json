@@ -1,6 +1,6 @@
 {
   "name": "@axis/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server exposing AXIS so any AI agent can atomically pay N x402 APIs on Algorand.",
   "type": "module",
   "main": "./src/index.ts",

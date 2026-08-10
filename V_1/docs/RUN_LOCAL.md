@@ -10,7 +10,7 @@ cd backend/router && node src/index.ts
 cd frontend/console && NEXT_PUBLIC_ROUTER_URL=http://localhost:8080 npx next dev
 ```
 
-Open http://localhost:3000 → click **"Should I merge this PR?"**.
+Open http://localhost:3000 → click **"Run full review"**.
 
 - `node src/index.ts` needs Node 22.18+ (native TypeScript).
 - Prefer `npx next dev` over `pnpm dev` (pnpm 11's pre-run dep check can choke

@@ -13,16 +13,63 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
-import { createAxisClient, AxisPayError } from "axis-pay";
+import { createAxisClient, AxisPayError, type AxisClient } from "axis-pay";
 
 const routerUrl = process.env.ROUTER_URL ?? "http://localhost:8080";
 const defaultAgent = process.env.AGENT_ADDRESS ?? "NG5SZZ3U6XOB4L5N4CPZ7SLIZRDIEK2CM4XMB5WDPLAWSCIRCIJTTKYOPQ";
-const axis = createAxisClient({ routerUrl });
+
+/**
+ * The account key can arrive two ways:
+ *
+ *  1. AXIS_API_KEY in the server's env — set once by whoever installed it.
+ *  2. The `connect_account` tool, at runtime, in conversation.
+ *
+ * (2) exists because editing a JSON config by hand is not something you can
+ * ask of every user. Connecting in chat means the flow is: sign up, copy key,
+ * tell Claude to connect. The key is written to ~/.axis/credentials (0600) so
+ * it survives a restart and nobody has to paste it twice.
+ *
+ * The tradeoff is real and worth stating: a key pasted into chat is in the
+ * conversation history. The env var avoids that, so it stays the better
+ * option for a shared or recorded machine.
+ */
+const CRED_FILE = join(homedir(), ".axis", "credentials");
+
+function readStoredKey(): string | undefined {
+  try {
+    const k = JSON.parse(readFileSync(CRED_FILE, "utf8"))?.apiKey;
+    return typeof k === "string" && k ? k : undefined;
+  } catch { return undefined; }
+}
+function writeStoredKey(key: string): void {
+  mkdirSync(dirname(CRED_FILE), { recursive: true, mode: 0o700 });
+  writeFileSync(CRED_FILE, JSON.stringify({ apiKey: key }, null, 2), { mode: 0o600 });
+  chmodSync(CRED_FILE, 0o600);   // enforce it even if the file already existed
+}
+
+let apiKey: string | undefined = process.env.AXIS_API_KEY ?? readStoredKey();
+let axis: AxisClient = createAxisClient({ routerUrl, apiKey });
+/** Rebuild the client so every later call carries the new key. */
+function useKey(key: string | undefined): void {
+  apiKey = key;
+  axis = createAxisClient({ routerUrl, apiKey: key });
+}
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
+
+/** Account data is per-key. Say so once, in words the user can act on, rather
+ *  than letting every tool fail with a bare 401. */
+const NO_KEY_HELP =
+  "No AXIS account is connected yet.\n\n" +
+  "Ask me to connect it — say \"connect my AXIS account, my key is axis_…\" — and I'll\n" +
+  "verify it and remember it for next time.\n\n" +
+  "Get your key from the AXIS console: Projects page → the key bar → copy.\n" +
+  "(Prefer not to paste it in chat? Set AXIS_API_KEY in this server's env instead.)";
+const needsKey = () => !apiKey;
 
 /**
  * Build the workflow inputs. If `filePath` is given, its contents become the
@@ -42,6 +89,77 @@ function buildInputs(inputs: Record<string, unknown> | undefined, filePath?: str
 }
 
 const server = new McpServer({ name: "axis-pay", version: "0.1.0" });
+
+server.registerTool(
+  "connect_account",
+  {
+    title: "Connect an AXIS account",
+    description:
+      "Connect the user's AXIS account by API key so every later tool call — projects, quotes, payments — belongs to them and shows up live in their console and Chrome extension. " +
+      "Use this the moment the user offers a key, or when any tool reports that no account is connected. " +
+      "The key is verified against the router before it is saved, and it is remembered across restarts. " +
+      "Never invent a key: if the user has not given one, tell them to copy it from the AXIS console's Projects page.",
+    inputSchema: {
+      apiKey: z.string().min(8).describe("the user's AXIS account API key, e.g. axis_a59f26f4… — taken verbatim from what they provided, never guessed"),
+    },
+  },
+  async ({ apiKey: given }) => {
+    const key = given.trim();
+    const previous = apiKey;
+    useKey(key);
+    try {
+      const me = await axis.whoami();           // reject a bad key before storing it
+      writeStoredKey(key);
+      return text(
+        `Connected as ${me.email}.\n\n` +
+        `Projects, payments and receipts from now on belong to this account, and runs will appear live ` +
+        `in its console and Chrome extension. Saved to ~/.axis/credentials so this only needs doing once.`,
+      );
+    } catch (e) {
+      useKey(previous);                          // leave the old account intact on failure
+      return text(
+        `That key was not accepted: ${(e as AxisPayError).message}\n\n` +
+        `Check it was copied whole from the AXIS console (Projects page → key bar → copy), ` +
+        `and that the router at ${routerUrl} is running.`,
+        true,
+      );
+    }
+  },
+);
+
+server.registerTool(
+  "disconnect_account",
+  {
+    title: "Disconnect the AXIS account",
+    description: "Forget the stored AXIS API key on this machine. Use when the user wants to switch accounts or stop this connection.",
+    inputSchema: {},
+  },
+  async () => {
+    try { rmSync(CRED_FILE, { force: true }); } catch { /* nothing stored */ }
+    useKey(process.env.AXIS_API_KEY);
+    return text(apiKey
+      ? "Stored key removed. Still connected via the AXIS_API_KEY set in this server's environment."
+      : "Disconnected. No AXIS account is connected now.");
+  },
+);
+
+server.registerTool(
+  "whoami",
+  {
+    title: "Which AXIS account am I acting as?",
+    description: "Show which AXIS account this connection spends from — its email and id. Call this before creating projects or paying for anything, and whenever the user asks whose account is in use. The account comes from the AXIS_API_KEY this server was started with; it is never entered in chat.",
+    inputSchema: {},
+  },
+  async () => {
+    if (needsKey()) return text(NO_KEY_HELP, true);
+    try {
+      const me = await axis.whoami();
+      return text(`Acting as ${me.email} (${me.id}). Projects created and money spent through these tools belong to this account.`);
+    } catch (e) {
+      return text(`Could not identify the account: ${(e as AxisPayError).message}`, true);
+    }
+  },
+);
 
 server.registerTool(
   "list_workflows",
@@ -122,13 +240,18 @@ server.registerTool(
   "list_projects",
   {
     title: "List projects",
-    description: "List projects that group runs, each with its total spend and refunds. Use a project's id as `projectId` in pay_and_run to tag a run to it.",
+    description: "List projects that group runs, each with its total spend, refunds, and — if it has one — its budget and remaining headroom. Use a project's id as `projectId` in pay_and_run / run_agent to tag a run to it.",
     inputSchema: {},
   },
   async () => {
+    if (needsKey()) return text(NO_KEY_HELP, true);
     const projects = await axis.listProjects();
     if (projects.length === 0) return text("No projects yet. Use create_project to make one.");
-    return text("Projects:\n" + projects.map((p) => `• ${p.name} (${p.id}) — ${p.runs} runs, net $${p.netUSDC}${Number(p.refundedUSDC) > 0 ? `, refunded $${p.refundedUSDC}` : ""}`).join("\n"));
+    return text("Projects:\n" + projects.map((p) =>
+      `• ${p.name} (${p.id}) — ${p.runs} runs, net $${p.netUSDC}` +
+      `${Number(p.refundedUSDC) > 0 ? `, refunded $${p.refundedUSDC}` : ""}` +
+      `${p.budgetUSDC != null ? `, budget $${p.budgetUSDC} ($${p.remainingUSDC} left)` : ""}`,
+    ).join("\n"));
   },
 );
 
@@ -136,18 +259,76 @@ server.registerTool(
   "create_project",
   {
     title: "Create a project",
-    description: "Create a named project to group runs under. Returns its id, which you pass as `projectId` to pay_and_run.",
-    inputSchema: { name: z.string().describe("the project name") },
+    description: "Create a named project to group runs under. Give it a budgetUSDC and every run_agent call tagged to it is capped automatically at whatever headroom is left — no per-run budget to pass. Returns its id, which you pass as `projectId` to pay_and_run / run_agent.",
+    inputSchema: {
+      name: z.string().describe("the project name"),
+      budgetUSDC: z.number().positive().optional().describe("total spending ceiling for this project; omit for no ceiling of its own (the server's spend-policy limits still apply)"),
+    },
   },
-  async ({ name }) => {
+  async ({ name, budgetUSDC }) => {
+    if (needsKey()) return text(NO_KEY_HELP, true);
     try {
-      const p = await axis.createProject(name);
-      return text(`Created project "${p.name}" — id ${p.id}. Pass projectId: "${p.id}" to pay_and_run to tag runs to it.`);
+      const p = await axis.createProject(name, budgetUSDC);
+      return text(
+        `Created project "${p.name}" — id ${p.id}` +
+        `${p.budgetUSDC != null ? `, budget $${p.budgetUSDC}` : ""}. ` +
+        `Pass projectId: "${p.id}" to pay_and_run or run_agent to tag runs to it.`,
+      );
     } catch (e) {
       return text(`Could not create project: ${(e as AxisPayError).message}`, true);
     }
   },
 );
 
+server.registerTool(
+  "run_agent",
+  {
+    title: "Run the autonomous agent on a plain-English task",
+    description: "Describe a task in plain English; an LLM decides whether an available service can genuinely do it. If one fits, it quotes, pays atomically, and returns the results plus a receipt. If nothing fits, it refuses and spends nothing — it will NOT run an unrelated workflow just to do something. Pass `projectId` for an automatic budget (whatever headroom that project has left); otherwise the server's own spend-policy limits are the only ceiling. Runs in the background; this call returns a runId immediately — poll get_run_result or just wait, then check list_projects / the console for the outcome.",
+    inputSchema: {
+      goal: z.string().describe("the task, in plain English, e.g. 'Review this diff and flag anything risky before merging.'"),
+      budgetUSDC: z.number().positive().optional().describe("hard spending ceiling in USDC; overrides a project's automatic budget if both are given"),
+      projectId: z.string().optional().describe("tag this run to a project (see list_projects / create_project) — also how it gets an automatic budget"),
+    },
+  },
+  async ({ goal, budgetUSDC, projectId }) => {
+    if (needsKey()) return text(NO_KEY_HELP, true);
+    try {
+      const { runId } = await axis.runAgent(goal, { budgetUSDC, projectId });
+      return text(`Agent started — runId ${runId}. It's running now: watch the console's Workflow page or the Chrome extension for it live, or call get_run_result once it's done.`);
+    } catch (e) {
+      return text(`Could not start the agent: ${(e as AxisPayError).message}`, true);
+    }
+  },
+);
+
+server.registerTool(
+  "get_run_result",
+  {
+    title: "Get a run's result",
+    description: "Fetch the unified receipt for a run — its status (SETTLED / PARTIAL / FAILED / REVERSED), what was paid, and every provider's result. Use the runId returned by run_agent or pay_and_run.",
+    inputSchema: { runId: z.string().describe("the run id, e.g. 'run_ab12cd34ef56'") },
+  },
+  async ({ runId }) => {
+    try {
+      const r = await axis.getReceipt(runId);
+      const legs = r.legs.map((l) => `  - ${l.provider} [${l.status}] ${l.explorerUrl}`).join("\n");
+      return text(`${r.status} — $${r.totalUSDC} across ${r.legs.length} providers.\n${legs}`);
+    } catch (e) {
+      return text(`No result yet for ${runId} — it may still be running.`, true);
+    }
+  },
+);
+
 await server.connect(new StdioServerTransport());
-process.stderr.write(`axis-pay MCP server ready → router ${routerUrl}\n`);
+
+// Name the account in the log the operator can actually see. Resolving it
+// needs the router, so this is best-effort and never blocks startup.
+const bootKey = apiKey;
+if (bootKey) {
+  axis.whoami()
+    .then((me) => process.stderr.write(`axis-pay MCP ready → router ${routerUrl} · acting as ${me.email}\n`))
+    .catch(() => process.stderr.write(`axis-pay MCP ready → router ${routerUrl} · account ${bootKey.slice(0, 12)}… (could not resolve owner)\n`));
+} else {
+  process.stderr.write(`axis-pay MCP ready → router ${routerUrl} · account NOT SET (set AXIS_API_KEY)\n`);
+}

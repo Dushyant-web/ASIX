@@ -21,6 +21,11 @@ export interface AxisClientOptions {
   routerUrl: string;
   /** Optional bearer token (from /v1/auth/login) for gated deployments. */
   token?: string;
+  /** Account API key (Console → Projects page → "copy"). Scopes
+   *  every call to your account — your projects, your runs, your live
+   *  stream — so runs made through this client show up in your console and
+   *  the Chrome extension in real time. */
+  apiKey?: string;
   /** Per-request timeout in ms (default 90_000 — a full settle can take ~15s). */
   timeoutMs?: number;
 }
@@ -70,9 +75,23 @@ export interface PayOptions {
   chaosStep?: string;
 }
 
+export interface AgentRunOptions {
+  /** Hard ceiling in USDC. Omit it when `projectId` points at a budgeted
+   *  project — the ceiling is then automatic: whatever headroom that
+   *  project has left. With no project, or a project with no budget, the
+   *  server's own spend-policy limits are still enforced either way. */
+  budgetUSDC?: number;
+  /** Tag this run to a project — also how it gets an automatic budget. */
+  projectId?: string;
+}
+
 export interface ProjectSummary {
   id: string; name: string; createdAt: string;
   runs: number; grossUSDC: string; refundedUSDC: string; netUSDC: string;
+  /** Total budget for this project, or null if it has none of its own. */
+  budgetUSDC: string | null;
+  /** Headroom left under that budget, or null when there is no budget. */
+  remainingUSDC: string | null;
 }
 
 /** Typed error carrying the router's own error code. */
@@ -93,13 +112,22 @@ export interface WorkflowInfo {
   inputs: string[];
 }
 
+export interface Account { id: string; email: string }
+
 export interface AxisClient {
+  /** Whose account is this client acting as? Answer before spending. */
+  whoami(): Promise<Account>;
   /** The workflows an agent can run (id, provider steps, required inputs). */
   listWorkflows(): Promise<WorkflowInfo[]>;
   /** Price a workflow with ZERO payment. Returns the signed quote (incl. policy). */
   quote(workflow: string, inputs: Record<string, unknown>, agentAddress: string): Promise<Quote>;
   /** Quote → budget check → settle → receipt. The one call an agent needs. */
   pay(workflow: string, inputs: Record<string, unknown>, agentAddress: string, opts?: PayOptions): Promise<Receipt>;
+  /** Describe a task in plain English; an LLM picks the workflow and pays it —
+   *  or refuses and spends nothing if no available service fits. Runs in the
+   *  background on the router; returns immediately with a runId to follow via
+   *  `onEvents` or `getReceipt`. */
+  runAgent(goal: string, opts?: AgentRunOptions): Promise<{ runId: string }>;
   /** Fetch a receipt by run id — renders standalone, hours later. */
   getReceipt(runId: string): Promise<Receipt>;
   /** Subscribe to the live event stream for a run (needs global EventSource). */
@@ -107,7 +135,7 @@ export interface AxisClient {
   /** List projects with their rolled-up spend. */
   listProjects(): Promise<ProjectSummary[]>;
   /** Create a project to group runs under; returns it (pass its id as PayOptions.projectId). */
-  createProject(name: string): Promise<ProjectSummary>;
+  createProject(name: string, budgetUSDC?: number): Promise<ProjectSummary>;
 }
 
 export function createAxisClient(options: AxisClientOptions): AxisClient {
@@ -115,6 +143,9 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
   const timeout = options.timeoutMs ?? 90_000;
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (options.token) headers.authorization = `Bearer ${options.token}`;
+  // Scopes every call — GET and POST alike — to this account, so runs made
+  // through this client show up live in the console and the extension.
+  if (options.apiKey) headers["x-api-key"] = options.apiKey;
 
   async function req<T>(path: string, body: unknown): Promise<{ status: number; json: any }> {
     const res = await fetch(`${base}${path}`, {
@@ -124,11 +155,22 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
     return { status: res.status, json: await res.json().catch(() => ({})) };
   }
 
+  /** GET + surface the router's own error code/message, not just a status. */
+  async function getJson(path: string, fallbackCode: string): Promise<any> {
+    const res = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(timeout) });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok || json?.error) {
+      throw new AxisPayError(json?.error?.code ?? fallbackCode, json?.error?.message ?? `request failed (${res.status})`);
+    }
+    return json;
+  }
+
+  async function whoami(): Promise<Account> {
+    return (await getJson("/v1/me", "NO_ACCOUNT")) as Account;
+  }
+
   async function listWorkflows(): Promise<WorkflowInfo[]> {
-    const res = await fetch(`${base}/v1/workflows`, { signal: AbortSignal.timeout(timeout) });
-    if (!res.ok) throw new AxisPayError("WORKFLOWS_FAILED", `could not list workflows (${res.status})`);
-    const body = (await res.json()) as { workflows?: WorkflowInfo[] };
-    return body.workflows ?? [];
+    return (await getJson("/v1/workflows", "WORKFLOWS_FAILED")).workflows ?? [];
   }
 
   async function quote(workflow: string, inputs: Record<string, unknown>, agentAddress: string): Promise<Quote> {
@@ -140,9 +182,7 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
   }
 
   async function getReceipt(runId: string): Promise<Receipt> {
-    const res = await fetch(`${base}/v1/receipt/${runId}`, { signal: AbortSignal.timeout(timeout) });
-    if (!res.ok) throw new AxisPayError("RECEIPT_NOT_FOUND", `no receipt for ${runId}`);
-    return (await res.json()) as Receipt;
+    return (await getJson(`/v1/receipt/${runId}`, "RECEIPT_NOT_FOUND")) as Receipt;
   }
 
   async function pay(workflow: string, inputs: Record<string, unknown>, agentAddress: string, opts: PayOptions = {}): Promise<Receipt> {
@@ -164,6 +204,14 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
     return getReceipt((json.runId as string) ?? q.runId);
   }
 
+  async function runAgent(goal: string, opts: AgentRunOptions = {}): Promise<{ runId: string }> {
+    const { status, json } = await req("/v1/agent/run", { goal, budgetUSDC: opts.budgetUSDC, projectId: opts.projectId });
+    if (status >= 400 || json?.error) {
+      throw new AxisPayError(json?.error?.code ?? "AGENT_RUN_FAILED", json?.error?.message ?? `agent run failed (${status})`);
+    }
+    return { runId: json.runId as string };
+  }
+
   function onEvents(runId: string, cb: (event: Record<string, unknown>) => void): () => void {
     const ES = (globalThis as any).EventSource;
     if (!ES) throw new AxisPayError("NO_EVENTSOURCE", "global EventSource unavailable in this runtime");
@@ -175,17 +223,19 @@ export function createAxisClient(options: AxisClientOptions): AxisClient {
   }
 
   async function listProjects(): Promise<ProjectSummary[]> {
-    const res = await fetch(`${base}/v1/projects`, { signal: AbortSignal.timeout(timeout) });
-    if (!res.ok) throw new AxisPayError("PROJECTS_FAILED", `could not list projects (${res.status})`);
-    return ((await res.json()) as { projects?: ProjectSummary[] }).projects ?? [];
+    return (await getJson("/v1/projects", "PROJECTS_FAILED")).projects ?? [];
   }
-  async function createProject(name: string): Promise<ProjectSummary> {
-    const { status, json } = await req("/v1/projects", { name });
+  /** `budgetUSDC` makes this project's spend automatic for the autonomous
+   *  agent: every run tagged to it gets whatever headroom is left, with no
+   *  per-run number to pass. Omit it for a project with no ceiling of its
+   *  own (the server's spend-policy limits still apply). */
+  async function createProject(name: string, budgetUSDC?: number): Promise<ProjectSummary> {
+    const { status, json } = await req("/v1/projects", { name, budgetUSDC });
     if (status >= 400 || json?.error) throw new AxisPayError(json?.error?.code ?? "PROJECT_FAILED", json?.error?.message ?? "could not create project");
     return json as ProjectSummary;
   }
 
-  return { listWorkflows, quote, pay, getReceipt, onEvents, listProjects, createProject };
+  return { whoami, listWorkflows, quote, pay, runAgent, getReceipt, onEvents, listProjects, createProject };
 }
 
 const EVENT_TYPES = [

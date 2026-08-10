@@ -6,28 +6,31 @@ interface AttackResult { fired: number; blocked: number; granted: number; mitiga
 
 const LIVE = [
   {
-    id: "replay", n: "Replay — the same payment used many times",
-    what: "Copy ONE real payment and slam the server with 12 identical copies at the same instant — like photocopying a paid ticket 12 times and rushing every copy through the gate together.",
-    how: "The server remembers every payment. The FIRST copy spends it and gets served; the other 11 arrive, find it already spent, and are turned away.",
+    id: "replay", n: "Replay",
+    tag: "one payment, used many times",
+    what: "Copy ONE real payment and slam the server with 12 identical copies at the same instant.",
+    how: "The server remembers every payment. The first copy spends it and is served; the other 11 find it already spent.",
     diagram: true,
   },
   {
-    id: "cross-resource", n: "Cross-resource — a payment used on the wrong service",
-    what: "Take a payment made for the cheap /diff service and try to use it on the pricier /bug service — like using a coffee receipt to claim a steak.",
-    how: "Every payment is stamped with WHICH service it was for. Used anywhere else, it is rejected on sight.",
+    id: "cross-resource", n: "Cross-resource",
+    tag: "a payment used on the wrong service",
+    what: "Take a payment made for the cheap /diff service and try to use it on the pricier /bug service.",
+    how: "Every payment is stamped with which service it was for. Used anywhere else, it is rejected on sight.",
     diagram: false,
   },
   {
-    id: "cache", n: "Cache leak — a paid answer handed to someone who didn't pay",
-    what: "Ask for a paid answer WITHOUT paying, hoping a cache sitting in front of the server still holds someone else's paid copy.",
-    how: "Every paid answer is marked “do not store”, so no cache can ever hand it to a freeloader.",
+    id: "cache", n: "Cache leak",
+    tag: "a paid answer served to someone who didn't pay",
+    what: "Ask for a paid answer without paying, hoping a cache in front of the server still holds someone else's copy.",
+    how: "Every paid answer is marked “do not store”, so no cache can hand it to a freeloader.",
     diagram: false,
   },
 ];
 const ASSESS = [
-  { n: "Revert-grant", why: "Needs the blockchain to rewind and erase a settled payment. Algorand finalises in ~3s and never rewinds, so the gap this attack needs simply does not exist. On Ethereum the paper measured up to 5.18%." },
-  { n: "Settlement preemption", why: "An Ethereum/Permit2 flaw. Our payment group is signed once and settled once; a thief who grabs it can only make the SAME payments land to the SAME providers. Nothing to steal." },
-  { n: "Server selection", why: "Attacks open provider discovery. AXIS uses a fixed, first-party set of providers — there is no discovery step to trick." },
+  { n: "Revert-grant", why: "Needs the chain to rewind a settled payment. Algorand finalises in ~3s and never rewinds, so the gap does not exist. On Ethereum the paper measured up to 5.18%." },
+  { n: "Settlement preemption", why: "An Ethereum/Permit2 flaw. Our group is signed once and settled once; a thief who grabs it can only make the same payments land to the same providers." },
+  { n: "Server selection", why: "Attacks open provider discovery. AXIS uses a fixed, first-party provider set — there is no discovery step to trick." },
 ];
 
 /** Plain-language verdict for a finished attack. */
@@ -100,49 +103,58 @@ export default function Attack() {
 
   return (
     <main>
-      <h1>Start attack</h1>
-      <p>One research paper (arXiv:2605.11781) breaks x402 with five attacks. We stop the three that hit any x402 server; the other two only work on Ethereum, and Algorand&apos;s design rules them out. Every button below fires a REAL attack at our own live endpoints.</p>
-      <p><a href="https://arxiv.org/abs/2605.11781" target="_blank" rel="noreferrer">download the paper</a></p>
+      <div className="dash-head">
+        <h1>Start attack</h1>
+        <span className="dim">
+          real requests against our own live endpoints ·{" "}
+          <a href="https://arxiv.org/abs/2605.11781" target="_blank" rel="noreferrer">arXiv:2605.11781</a>
+        </span>
+      </div>
 
-      <h2>First — what the two numbers mean</h2>
-      <ul>
-        <li><b>served (granted)</b> = a request that got through and received the paid answer.</li>
-        <li><b>refused (blocked)</b> = a copied / replayed request that was turned away.</li>
-      </ul>
-      <p>The attack sends 12 copies of ONE payment. A broken server would serve all 12 — meaning anyone could replay your payment forever. Ours serves <b>exactly 1</b> (the one real use) and refuses the other 11. So <b>served 1 is correct</b>; <b>refused 11 is the attack failing.</b></p>
+      <div className="stat-row">
+        <div className="stat"><div className="k">served = granted</div><div className="v ok">1</div><div className="k" style={{ marginTop: 6 }}>the one real use — correct</div></div>
+        <div className="stat"><div className="k">refused = blocked</div><div className="v warn">11</div><div className="k" style={{ marginTop: 6 }}>copies turned away — the attack failing</div></div>
+        <div className="stat"><div className="k">mitigated / total</div><div className="v">3 / 5</div><div className="k" style={{ marginTop: 6 }}>the other 2 are Ethereum-only</div></div>
+      </div>
 
-      <h2>Live attacks (real requests against our endpoints)</h2>
       {LIVE.map((a) => {
         const r = results[a.id];
         const done = r && r !== "running" ? (r as AttackResult) : undefined;
+        const v = done ? verdict(done) : null;
         return (
-          <div key={a.id}>
-            <h3>{a.n}</h3>
-            <p><b>The attack:</b> {a.what}</p>
-            <p><b>How we stop it:</b> {a.how}</p>
-            {a.diagram ? <ReplayDiagram r={done} /> : null}
-            <p>
+          <div key={a.id} className="atk">
+            <div className="atk-head">
+              <h3>{a.n}</h3>
+              <span className="dim">{a.tag}</span>
               <button onClick={() => fire(a.id)} disabled={r === "running"}>
-                {r === "running" ? "firing… (~2s)" : "fire attack"}
+                {r === "running" ? "firing…" : "fire attack"}
               </button>
-              {a.id === "replay" && !proof && r !== "running" ? " (arming a real payment…)" : null}
-            </p>
-            {r === "running" ? <p>⏳ firing 12 real requests at the live endpoint…</p> : null}
-            {done ? (
-              <>
-                <p><b>{verdict(done).line}</b></p>
-                <p>fired {done.fired} · served {done.granted} · refused {done.blocked}</p>
-              </>
+            </div>
+            <p className="atk-line"><b>The attack:</b> {a.what}</p>
+            <p className="atk-line"><b>How we stop it:</b> {a.how}</p>
+            {a.id === "replay" && !proof && r !== "running" ? <p className="dim atk-line">arming a real payment…</p> : null}
+            {a.diagram ? <ReplayDiagram r={done} /> : null}
+            {r === "running" ? <p className="dim atk-line">firing 12 real requests at the live endpoint…</p> : null}
+            {done && v ? (
+              <div className="atk-result">
+                <span className={v.ok ? "pill pill-ok" : "pill pill-bad"}>{v.ok ? "attack failed" : "vulnerable"}</span>
+                <span>{v.line.replace(/^[✅❌⚠]\s*/, "").replace(/^(ATTACK FAILED|VULNERABLE|NOT BLOCKED)\s*—\s*/, "")}</span>
+                <span className="dim" style={{ marginLeft: "auto" }}>fired {done.fired} · served {done.granted} · refused {done.blocked}</span>
+              </div>
             ) : null}
-            <hr />
           </div>
         );
       })}
 
       <h2>Can&apos;t happen here on Algorand</h2>
-      {ASSESS.map((a) => (
-        <div key={a.n}><h3>{a.n}</h3><p>{a.why}</p></div>
-      ))}
+      <div className="proj-grid">
+        {ASSESS.map((a) => (
+          <div key={a.n} className="card">
+            <div className="nm" style={{ fontWeight: 640, marginBottom: 6 }}>{a.n}</div>
+            <div className="dim" style={{ fontSize: 13 }}>{a.why}</div>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }

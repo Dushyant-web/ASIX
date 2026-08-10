@@ -46,6 +46,7 @@ export interface ReceiptSummary {
 
 export interface AuthResponse {
   token: string;
+  apiKey: string;
   user: { id: string; email: string };
 }
 
@@ -68,22 +69,36 @@ export interface Usage {
 export interface ProjectSummary {
   id: string; name: string; createdAt: string;
   runs: number; grossUSDC: string; refundedUSDC: string; netUSDC: string;
+  /** Total budget for this project, or null if it has none of its own —
+   *  only the server's spend-policy limits apply then. */
+  budgetUSDC: string | null;
+  /** Headroom left under that budget, or null when there is no budget. */
+  remainingUSDC: string | null;
 }
 
 export interface ProjectRun {
-  receiptId: string; workflow: string; status: string; totalUSDC: string; refundedUSDC: string; createdAt: string;
+  receiptId: string; workflow: string; status: string;
+  /** Best-effort one-line preview of what was asked — the diff/commit message/goal. */
+  prompt: string;
+  totalUSDC: string; refundedUSDC: string; createdAt: string;
 }
 
 export interface ProjectDetail {
   id: string; name: string; createdAt: string;
-  totals: { runs: number; grossUSDC: string; refundedUSDC: string; netUSDC: string };
+  totals: { runs: number; grossUSDC: string; refundedUSDC: string; netUSDC: string; budgetUSDC: string | null; remainingUSDC: string | null };
   runs: ProjectRun[];
+}
+
+/** The logged-in account's API key, sent so the router scopes data to this user. */
+function keyHeaders(): Record<string, string> {
+  const k = typeof window === "undefined" ? null : localStorage.getItem("axis_apikey");
+  return k ? { "x-api-key": k } : {};
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...keyHeaders() },
     body: JSON.stringify(body),
   });
   const json = await res.json();
@@ -91,9 +106,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return json as T;
 }
 
+/** GET that carries the account key, so lists come back scoped to this user. */
+function get<T>(path: string): Promise<T> {
+  return fetch(`${BASE}${path}`, { headers: keyHeaders() }).then((r) => r.json() as Promise<T>);
+}
+
 export const api = {
-  quote: (agentAddress: string, inputs: Record<string, unknown>, workflow = "pr-review") =>
-    post<QuoteResponse>("/v1/workflow/quote", { workflow, agentAddress, inputs }),
+  /** The router defaults to its own funded wallet, so no address is hardcoded here. */
+  quote: (inputs: Record<string, unknown>, workflow = "pr-review") =>
+    post<QuoteResponse>("/v1/workflow/quote", { workflow, inputs }),
 
   execute: (quoteId: string, runId?: string, projectId?: string) =>
     post<ExecuteResponse>("/v1/workflow/execute", { quoteId, runId, projectId }),
@@ -112,23 +133,26 @@ export const api = {
   /** The workflows (services) available to run. */
   workflows: () => fetch(`${BASE}/v1/workflows`).then((r) => r.json() as Promise<{ workflows: WorkflowInfo[] }>),
 
-  /** Every run/receipt in the DB, newest first. */
-  receipts: () => fetch(`${BASE}/v1/receipts`).then((r) => r.json() as Promise<{ receipts: ReceiptSummary[] }>),
+  /** This account's runs/receipts, newest first. */
+  receipts: () => get<{ receipts: ReceiptSummary[] }>("/v1/receipts"),
 
   /** Launch the autonomous agent: it picks a workflow from the goal and pays
-   *  atomically within budget. Returns a runId to stream live. */
-  runAgent: (goal: string, budgetUSDC: number, projectId?: string) => post<{ runId: string }>("/v1/agent/run", { goal, budgetUSDC, projectId }),
+   *  atomically. Budget is automatic when a budgeted project is tagged
+   *  (whatever headroom is left); omit budgetUSDC to use that, or pass it to
+   *  set an explicit hard cap instead. Returns a runId to stream live. */
+  runAgent: (goal: string, projectId?: string, budgetUSDC?: number) => post<{ runId: string }>("/v1/agent/run", { goal, budgetUSDC, projectId }),
 
-  /** Runs that got money back on chain. */
-  refunds: () => fetch(`${BASE}/v1/refunds`).then((r) => r.json() as Promise<{ refunds: RefundSummary[] }>),
+  /** This account's runs that got money back on chain. */
+  refunds: () => get<{ refunds: RefundSummary[] }>("/v1/refunds"),
 
-  /** Spend totals (optionally for one agent address). */
-  usage: (agent?: string) => fetch(`${BASE}/v1/usage${agent ? `?agent=${agent}` : ""}`).then((r) => r.json() as Promise<Usage>),
+  /** Spend totals for this account. */
+  usage: () => get<Usage>("/v1/usage"),
 
-  /** Projects — group runs and see per-project spend. */
-  projects: () => fetch(`${BASE}/v1/projects`).then((r) => r.json() as Promise<{ projects: ProjectSummary[] }>),
-  createProject: (name: string) => post<ProjectSummary>("/v1/projects", { name }),
-  project: (id: string) => fetch(`${BASE}/v1/projects/${id}`).then((r) => r.json() as Promise<ProjectDetail>),
+  /** Projects — group runs and see per-project spend (scoped to this account).
+   *  budgetUSDC makes the autonomous agent's spend automatic within it. */
+  projects: () => get<{ projects: ProjectSummary[] }>("/v1/projects"),
+  createProject: (name: string, budgetUSDC?: number) => post<ProjectSummary>("/v1/projects", { name, budgetUSDC }),
+  project: (id: string) => get<ProjectDetail>(`/v1/projects/${id}`),
 
   /** JWT auth — plain email + password, no third-party provider. */
   signup: (email: string, password: string) => post<AuthResponse>("/v1/auth/signup", { email, password }),
@@ -144,12 +168,15 @@ export const session = {
     if (typeof window === "undefined") return;
     localStorage.setItem("axis_token", a.token);
     localStorage.setItem("axis_email", a.user.email);
+    if (a.apiKey) localStorage.setItem("axis_apikey", a.apiKey);
   },
   email: () => (typeof window === "undefined" ? null : localStorage.getItem("axis_email")),
   token: () => (typeof window === "undefined" ? null : localStorage.getItem("axis_token")),
+  apiKey: () => (typeof window === "undefined" ? null : localStorage.getItem("axis_apikey")),
   clear: () => {
     if (typeof window === "undefined") return;
     localStorage.removeItem("axis_token");
     localStorage.removeItem("axis_email");
+    localStorage.removeItem("axis_apikey");
   },
 };

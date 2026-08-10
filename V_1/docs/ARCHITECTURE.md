@@ -1101,7 +1101,7 @@ The brief's 20 examples include **commit roaster** and **bug summarizer** — we
 This is intentional on three levels:
 
 1. **They are from the official list**, so a judge recognises them immediately — no time wasted explaining what the endpoints do.
-2. **They compose into one coherent question** — *"Should I merge this PR?"* — instead of four unrelated services glued together. The DAG is real: `bugsum` genuinely consumes `diff`'s output.
+2. **They compose into one coherent review** — a single code change assessed from four angles at once — instead of four unrelated services glued together. The DAG is real: `bugsum` genuinely consumes `diff`'s output.
 3. **They are cheap and fast**, so the demo completes in under 20 seconds live.
 
 We are not doing a research agent. Everyone is doing a research agent.

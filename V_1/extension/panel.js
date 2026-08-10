@@ -1,11 +1,12 @@
 /**
  * AXIS Live Monitor — an animated flowchart of the real stack.
  *
- * Follows the router's live event stream and turns each step into motion:
- * branded service boxes (Cloudflare, NVIDIA, Neon, Algorand, GoPlausible) light
- * up as they act, arrows flow, and streams of GOLDEN COINS travel the edges when
- * money moves — forward on settle, and ALL the way back to the agent on failure.
- * Logos are inline SVG (extensions can't fetch CDNs), so they always render.
+ * Follows the router's live event stream and turns each step into motion. The
+ * left column is the fixed cast (agent, guard, router, Neon, group, fee payer,
+ * receipt); the right panel lists EVERY service the router reports, one row
+ * each, so the count is whatever the API says rather than a number baked in
+ * here. Wires carry a travelling dot while work is in flight, and coins run the
+ * edges when money moves — forward on settle, back to the agent on a refund.
  */
 
 const DEFAULT_ROUTER = "http://localhost:8080";
@@ -14,45 +15,38 @@ const $ = (id) => document.getElementById(id);
 const scene = $("scene");
 
 let router = DEFAULT_ROUTER;
+let apiKey = "";
 let followedRunId = null, es = null, view = null;
-let slotOf = {}, providerCount = 4;
+let slotOf = {};
 let catalogue = [], boxOfProvider = {};   // ALL services (from /v1/workflows) + name→box
-const ABBR = {
-  "diff-explainer": "diff", "guardrail-checker": "guard", "commit-roaster": "commit",
-  "bug-summarizer": "bugs", "summarizer": "summ", "test-writer": "tests",
-  "code-generator": "code", "debugger": "debug", "translator": "trans",
-};
-const label = (p) => ABBR[p] || short(p).slice(0, 6);
 
-// ── Brand logos — simplified inline SVG marks in each brand's colour ─────────
-const LOGO = {
-  agent: `<rect width="24" height="24" rx="6" fill="#f6c344"/><rect x="4.5" y="8" width="15" height="9.5" rx="2" fill="#5c440d"/><path d="M4.5 8.5 L14 5 L16 8" stroke="#5c440d" stroke-width="1.6" fill="none"/><circle cx="16" cy="12.6" r="2" fill="#f6c344"/>`,
-  axis: `<rect width="24" height="24" rx="6" fill="#0e2a33"/><path d="M12 4.5 L19 18 H5 Z" fill="none" stroke="#22d3ee" stroke-width="2"/><path d="M9 14 h6" stroke="#22d3ee" stroke-width="2"/>`,
-  guard: `<path d="M12 2.5 L20 5.5 V12 q0 6.5 -8 9.5 q-8 -3 -8 -9.5 V5.5 Z" fill="#1c1206" stroke="#f59e0b" stroke-width="1.6"/><path d="M8.5 12 l2.3 2.3 L15.5 9.5" stroke="#f59e0b" stroke-width="1.8" fill="none"/>`,
-  neon: `<rect width="24" height="24" rx="6" fill="#00e599"/><path d="M6.5 17 V7 l11 10 V7" fill="none" stroke="#00281b" stroke-width="2.2" stroke-linejoin="round"/>`,
-  algorand: `<rect width="24" height="24" rx="6" fill="#000"/><path d="M5.5 18 L11 6 L13 10.2 L9.2 18 Z" fill="#fff"/><path d="M12.6 11 L14 8 L16.8 18 L14 18 Z" fill="#fff"/><path d="M13.6 6 h2.4 l.7 2.4 Z" fill="#fff"/>`,
-  goplausible: `<path d="M12 2.5 L20.5 7 V17 L12 21.5 L3.5 17 V7 Z" fill="#151033" stroke="#8b6cf6" stroke-width="1.5"/><path d="M9 15 V9 h3.2 a2.4 2.4 0 0 1 0 4.8 H9" fill="none" stroke="#a78bfa" stroke-width="1.8"/>`,
-  cloudflare: `<path d="M17.5 17 H7 a3.2 3.2 0 0 1 -.4 -6.36 A5 5 0 0 1 16 9.2 a3.6 3.6 0 0 1 1.5 7.8 Z" fill="#f6821f"/><path d="M6.6 13.6 H19" stroke="#fff" stroke-width="1.1" opacity=".55"/>`,
-  nvidia: `<rect width="24" height="24" rx="6" fill="#76b900"/><path d="M6 12.4 q3.2 -4.2 10 -2.6 q-4.8 .1 -6.6 3.3 q2.6 -1.7 6.6 -.8 q-6.1 .6 -10 .1z" fill="#fff"/>`,
-  receipt: `<rect width="24" height="24" rx="6" fill="#0e1b16"/><path d="M7 3.5 h10 v17 l-2 -1.4 -2 1.4 -2 -1.4 -2 1.4 -2 -1.4 V3.5 Z" fill="#eef2f8"/><path d="M9 8 h6 M9 11 h6 M9 14 h4" stroke="#0e1b16" stroke-width="1.3" stroke-linecap="round"/>`,
-};
+// ── Scene geometry ──────────────────────────────────────────────────────────
+// The flowchart, top to bottom: agent → router (flanked by guard + Neon) →
+// atomic group (with the fee payer beside it) → every service → one receipt.
+// Sizes are deliberately generous: at panel width a 5-wide row of services is
+// unreadable, so services wrap 3 per row and keep full-size labels.
+const VB_W = 380;
+const SERV_COLS = 3, SERV_W = 112, SERV_H = 32, SERV_GAP_X = 7, SERV_GAP_Y = 7;
+const SERV_TOP = 196;
 
-// ── Scene geometry (viewBox 380 x 404) ──────────────────────────────────────
-// role2 = a second small line (used for the "powered by" service tag)
+/** The fixed cast. Services are added per catalogue, in their own id space. */
+const FIXED = ["agent", "guard", "router", "neon", "group", "facil", "receipt"];
 const N = {
-  agent: { cx: 190, cy: 34, w: 210, h: 46, logo: "agent", name: "Agent", role: "your USDC wallet" },
-  router:{ cx: 190, cy: 128, w: 150, h: 46, logo: "axis", name: "AXIS Router", role: "orchestrator" },
-  guard: { cx: 56,  cy: 128, w: 96,  h: 46, logo: "guard", name: "Guard", role: "spend policy" },
-  neon:  { cx: 324, cy: 128, w: 104, h: 46, logo: "neon", name: "Neon", role: "Postgres store" },
-  group: { cx: 150, cy: 230, w: 182, h: 50, logo: "algorand", name: "Atomic Group", role: "Algorand · all-or-nothing" },
-  facil: { cx: 322, cy: 230, w: 110, h: 50, logo: "goplausible", name: "GoPlausible", role: "fee payer" },
-  receipt: { cx: 190, cy: 448, w: 234, h: 48, logo: "receipt", name: "Receipt", role: "unified · one per run" },
+  agent:   { cx: 190, cy: 24,  w: 216, h: 32, name: "Agent",        role: "your USDC wallet" },
+  guard:   { cx: 56,  cy: 86,  w: 100, h: 32, name: "Guard",        role: "spend policy" },
+  router:  { cx: 190, cy: 86,  w: 140, h: 32, name: "AXIS router",  role: "discover & quote" },
+  neon:    { cx: 324, cy: 86,  w: 104, h: 32, name: "Neon",         role: "quote + txids" },
+  group:   { cx: 136, cy: 148, w: 184, h: 32, name: "Atomic group", role: "all-or-nothing" },
+  facil:   { cx: 300, cy: 148, w: 124, h: 32, name: "GoPlausible",  role: "pays ALGO fees" },
+  receipt: { cx: 190, cy: 340, w: 228, h: 32, name: "Receipt",      role: "one per run" },
 };
-// Provider boxes are laid out DYNAMICALLY per run (N providers, not a fixed 4).
+
+// Service boxes are laid out DYNAMICALLY per catalogue — 9 today, whatever the
+// router reports tomorrow. Nothing here assumes a count.
 let PROV = [];
 const EDGES = [
-  ["agent","router"], ["router","guard"], ["router","neon"], ["router","group"],
-  ["facil","group"], ["group","neon"],
+  ["agent", "router"], ["router", "guard"], ["router", "neon"],
+  ["router", "group"], ["facil", "group"], ["group", "neon"],
 ];
 const ctr = (id) => ({ x: N[id].cx, y: N[id].cy });
 function anchor(a, b) {
@@ -61,99 +55,140 @@ function anchor(a, b) {
   return { x: A.cx, y: A.cy + Math.sign(dy) * A.h / 2 };
 }
 
-// ── Build the static scene (as SVG markup, so logos inline cleanly) ──────────
+/**
+ * A wire between two anchors: a cubic bezier that leaves and enters along the
+ * dominant axis, so a fan-out of edges from one node reads as separate curves
+ * rather than a bundle of crossing straight lines.
+ */
+function wire(p1, p2) {
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const k = 0.5;
+  return Math.abs(dx) > Math.abs(dy)
+    ? `M${p1.x},${p1.y} C${p1.x + dx * k},${p1.y} ${p2.x - dx * k},${p2.y} ${p2.x},${p2.y}`
+    : `M${p1.x},${p1.y} C${p1.x},${p1.y + dy * k} ${p2.x},${p2.y - dy * k} ${p2.x},${p2.y}`;
+}
+
+const TERMINAL = ["SETTLED", "PARTIAL", "FAILED", "REVERSED"];
+
+/** A dot that travels the wire itself — the signal that something is moving. */
+function wireDot(f, t, dur = 1.1) {
+  const id = `e-${f}-${t}`;
+  if (!$(id) || $(`d-${id}`)) return;          // no such edge, or one already running
+  if (view && TERMINAL.includes(view.status)) return;   // run is over — nothing is in flight
+  const g = document.createElementNS(SVGNS, "circle");
+  g.setAttribute("id", `d-${id}`);
+  g.setAttribute("r", "2.6");
+  g.setAttribute("class", "wire-dot");
+  const mo = document.createElementNS(SVGNS, "animateMotion");
+  mo.setAttribute("dur", `${dur}s`);
+  mo.setAttribute("repeatCount", "indefinite");
+  const mp = document.createElementNS(SVGNS, "mpath");
+  mp.setAttribute("href", `#${id}`);
+  mo.appendChild(mp);
+  g.appendChild(mo);
+  scene.appendChild(g);
+}
+const clearWireDots = () => scene.querySelectorAll(".wire-dot").forEach((e) => e.remove());
+
+// ── Build the whole scene ───────────────────────────────────────────────────
+/**
+ * Geometry depends on how many services the router actually reports, so the
+ * scene is rebuilt as one unit rather than patched in pieces. Provider rows
+ * live in their own id space (p0…pN) and are deliberately NOT mixed into the
+ * fixed-node loop — doing that once drew every service twice, as a big card
+ * and a row on top of each other.
+ */
 function buildScene() {
+  const count = catalogue.length;
+  PROV = catalogue.map((_, i) => `p${i}`);
+  boxOfProvider = {};
+
+  // Lay the services out first — their grid height decides where the receipt
+  // sits and how tall the scene is.
+  const rows = Math.max(1, Math.ceil(count / SERV_COLS));
+  catalogue.forEach((prov, i) => {
+    const r = Math.floor(i / SERV_COLS), c = i % SERV_COLS;
+    const inRow = Math.min(SERV_COLS, count - r * SERV_COLS);
+    const rowW = inRow * SERV_W + (inRow - 1) * SERV_GAP_X;
+    N[`p${i}`] = {
+      cx: (VB_W - rowW) / 2 + SERV_W / 2 + c * (SERV_W + SERV_GAP_X),
+      cy: SERV_TOP + r * (SERV_H + SERV_GAP_Y) + SERV_H / 2,
+      w: SERV_W, h: SERV_H, name: prov, role: "",
+    };
+    boxOfProvider[prov] = i;
+  });
+  const gridBottom = SERV_TOP + rows * (SERV_H + SERV_GAP_Y);
+  N.receipt.cy = gridBottom + 30;
+  const H = N.receipt.cy + N.receipt.h / 2 + 10;
+  scene.setAttribute("viewBox", `0 0 ${VB_W} ${H}`);
+
   let s = `
     <defs>
-      <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#3a4658"/>
-      </marker>
       <radialGradient id="gold" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stop-color="#fff6d8"/><stop offset="35%" stop-color="#f6c344"/>
-        <stop offset="100%" stop-color="#b8801a"/>
+        <stop offset="0%" stop-color="#fff6d8"/><stop offset="35%" stop-color="#e8c07a"/>
+        <stop offset="100%" stop-color="#8a6a2e"/>
       </radialGradient>
       <filter id="cglow" x="-80%" y="-80%" width="260%" height="260%">
-        <feGaussianBlur stdDeviation="2.4" result="b"/>
+        <feGaussianBlur stdDeviation="2" result="b"/>
         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
     </defs>`;
 
-  // Cloudflare lane behind the providers
-  s += `<rect class="lane" x="4" y="316" width="372" height="84" rx="10"/>
-        <text class="lane-lbl" x="12" y="329">☁ CLOUDFLARE WORKERS</text>`;
-
-  for (const [f, t] of EDGES) {
-    const p1 = anchor(f, t), p2 = anchor(t, f);
-    s += `<path id="e-${f}-${t}" class="edge" d="M${p1.x},${p1.y} L${p2.x},${p2.y}"/>`;
+  // The lane the services sit in, drawn behind them.
+  if (count) {
+    const top = SERV_TOP - 20;
+    s += `<rect class="panel-box" x="6" y="${top}" width="${VB_W - 12}" height="${gridBottom - top}" rx="10"/>
+          <text class="panel-lbl" id="panel-lbl" x="16" y="${top + 13}">SERVICES · UNPAID</text>`;
   }
-  s += `<g id="prov-edges"></g>`;                  // provider edges, filled per run
-  for (const id in N) s += nodeSvg(id, N[id]);
-  s += `<g id="prov-boxes"></g>`;                  // provider boxes, filled per run
+
+  // Wires under everything.
+  for (const [f, t] of EDGES) {
+    s += `<path id="e-${f}-${t}" class="edge" d="${wire(anchor(f, t), anchor(t, f))}"/>`;
+  }
+  catalogue.forEach((_, i) => {
+    for (const [f, t] of [["group", `p${i}`], [`p${i}`, "receipt"]]) {
+      s += `<path id="e-${f}-${t}" class="edge" d="${wire(anchor(f, t), anchor(t, f))}"/>`;
+    }
+  });
+
+  for (const id of FIXED) s += nodeSvg(id, N[id]);
+  catalogue.forEach((_, i) => { s += provSvg(`p${i}`, N[`p${i}`]); });
   scene.innerHTML = s;
+
+  catalogue.forEach((_, i) => markUnused(`p${i}`));   // nothing is used until a run says so
 }
 
-/** A horizontal card (logo left, name + role right) — used for the fixed nodes. */
+/** A fixed actor: name over a mono sub-line. No logo — the shape carries it. */
 function nodeSvg(id, n) {
   const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
-  const lx = x + 9, ly = y + (n.h - 24) / 2, tx = lx + 32;
   return `<g id="n-${id}">
-    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="11"/>
-    <g transform="translate(${lx},${ly})">${LOGO[n.logo]}</g>
-    <text class="name" id="name-${id}" x="${tx}" y="${n.cy - 2}">${n.name}</text>
-    <text class="role" id="role-${id}" x="${tx}" y="${n.cy + 11}">${n.role}</text>
+    <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="10"/>
+    <text class="name" id="name-${id}" x="${x + 10}" y="${n.cy - 1}">${n.name}</text>
+    <text class="role" id="role-${id}" x="${x + 10}" y="${n.cy + 10}">${n.role}</text>
   </g>`;
 }
 
-/** A compact card (logo top, name + role centered) — for the N provider boxes. */
-/** A compact service box: name + status line + a hidden ✕ overlay (shown when unused). */
+/** A service box: name, status under it, and a state tag in the corner. */
 function provSvg(id, n) {
   const x = n.cx - n.w / 2, y = n.cy - n.h / 2;
   return `<g id="n-${id}">
     <rect class="card" id="card-${id}" x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="8"/>
-    <text class="name" id="name-${id}" x="${n.cx}" y="${n.cy - 1}" text-anchor="middle" style="font-size:9px">${n.name}</text>
-    <text class="role" id="role-${id}" x="${n.cx}" y="${n.cy + 9}" text-anchor="middle" style="font-size:7px">${n.role || ""}</text>
-    <g id="x-${id}" opacity="0">
-      <line x1="${x + 6}" y1="${y + 6}" x2="${x + n.w - 6}" y2="${y + n.h - 6}" stroke="#f87171" stroke-width="2.4"/>
-      <line x1="${x + n.w - 6}" y1="${y + 6}" x2="${x + 6}" y2="${y + n.h - 6}" stroke="#f87171" stroke-width="2.4"/>
-    </g>
+    <text class="name prov" id="name-${id}" x="${n.cx}" y="${n.cy - 2}" text-anchor="middle">${shortName(n.name)}</text>
+    <text class="role" id="role-${id}" x="${n.cx}" y="${n.cy + 8}" text-anchor="middle">${n.role || ""}</text>
+    <text class="tag" id="tag-${id}" x="${n.cx - n.w / 2 + 7}" y="${n.cy - 2}" text-anchor="start"></text>
   </g>`;
 }
 
-/** Lay out ALL services (the catalogue) in a grid, wire edges, start all unused. */
-function layoutCatalogue() {
-  const names = catalogue;
-  if (!names.length) return;
-  PROV = names.map((_, i) => `p${i}`);
-  boxOfProvider = {};
-  const count = names.length;
-  const perRow = Math.min(5, count);
-  const rows = Math.ceil(count / perRow);
-  const m = 8, gapX = 5, gapY = 6, topY = rows > 1 ? 344 : 352;
-  const w = (380 - 2 * m - gapX * (perRow - 1)) / perRow;
-  const h = rows > 1 ? 34 : 54;
-  let edges = "", boxes = "";
-  names.forEach((prov, i) => {
-    const r = Math.floor(i / perRow), c = i % perRow;
-    const inRow = Math.min(perRow, count - r * perRow);
-    const x0 = (380 - (inRow * w + gapX * (inRow - 1))) / 2;
-    const id = `p${i}`;
-    N[id] = { cx: x0 + w / 2 + c * (w + gapX), cy: topY + r * (h + gapY), w, h, name: label(prov), role: "" };
-    boxOfProvider[prov] = i;
-    for (const [f, t] of [["group", id], [id, "receipt"]]) {
-      const a = anchor(f, t), b = anchor(t, f);
-      edges += `<path id="e-${f}-${t}" class="edge" d="M${a.x},${a.y} L${b.x},${b.y}"/>`;
-    }
-    boxes += provSvg(id, N[id]);
-  });
-  const pe = $("prov-edges"), pb = $("prov-boxes");
-  if (pe) pe.innerHTML = edges;
-  if (pb) pb.innerHTML = boxes;
-  names.forEach((_, i) => markUnused(`p${i}`));   // everything crossed until a run uses it
-}
+/** Provider names are long; drop the redundant suffix so the box stays legible. */
+const shortName = (p) => String(p || "").replace(/-(explainer|checker|roaster|summarizer|generator|writer)$/, "");
 
-const showX = (id, on) => { const e = $(`x-${id}`); if (e) e.setAttribute("opacity", on ? "0.9" : "0"); };
-function markUnused(id) { setCard(id, "unused"); setRole(id, "not used", "dim"); showX(id, true); }
-function markUsed(id) { setCard(id, "active"); setRole(id, ""); showX(id, false); }
+const setPanelLabel = (s) => { const e = $("panel-lbl"); if (e) e.textContent = s; };
+const setTag = (id, s, mod) => {
+  const e = $(`tag-${id}`);
+  if (e) { e.textContent = s || ""; e.setAttribute("class", "tag" + (mod ? " " + mod : "")); }
+};
+function markUnused(id) { setCard(id, "unused"); setRole(id, "not called"); setTag(id, "—"); }
+function markUsed(id) { setCard(id, "active"); setRole(id, "selected"); setTag(id, ""); }
 
 /** Fetch the full service catalogue (distinct providers across all workflows). */
 async function fetchCatalogue() {
@@ -163,7 +198,7 @@ async function fetchCatalogue() {
     const { workflows } = await res.json();
     const set = [];
     for (const wf of (workflows || [])) for (const st of (wf.steps || [])) if (!set.includes(st.provider)) set.push(st.provider);
-    if (set.length) { catalogue = set; if (view) layoutCatalogue(); }
+    if (set.length) { catalogue = set; if (view) buildScene(); }
   } catch { /* offline — fall back to the run's own providers */ }
 }
 
@@ -171,7 +206,12 @@ async function fetchCatalogue() {
 const setCard = (id, cls) => { const e = $(`card-${id}`); if (e) e.setAttribute("class", "card " + (cls || "")); };
 const setName = (id, s) => { const e = $(`name-${id}`); if (e) e.textContent = s; };
 const setRole = (id, s, mod) => { const e = $(`role-${id}`); if (e) { e.textContent = s; e.setAttribute("class", "role" + (mod ? " " + mod : "")); } };
-const pulse = (f, t, cls) => { const e = $(`e-${f}-${t}`); if (e) e.setAttribute("class", "edge " + (cls || "active")); };
+const pulse = (f, t, cls) => {
+  const e = $(`e-${f}-${t}`);
+  if (!e) return;
+  e.setAttribute("class", "edge " + (cls || "active"));
+  wireDot(f, t, cls === "refund" ? 1.4 : 1.1);
+};
 
 /** A stream of travelling markers: golden coins for MONEY, cyan chips for RESULTS. */
 function coins(fromId, toId, { n = 3, dur = 0.9, gap = 0.16, refund = false, record = false } = {}) {
@@ -249,7 +289,7 @@ function term(e) {
 function clearTerm() { const b = $("term-body"); if (b) b.innerHTML = `<div class="empty">…</div>`; }
 
 // ── View + event fold ───────────────────────────────────────────────────────
-function fresh() { buildScene(); layoutCatalogue(); clearTerm(); slotOf = {}; return { runId: null, status: "idle", paidSlots: [], used: [] }; }
+function fresh() { buildScene(); clearTerm(); slotOf = {}; return { runId: null, status: "idle", paidSlots: [], used: [] }; }
 
 function apply(e) {
   switch (e.type) {
@@ -258,31 +298,33 @@ function apply(e) {
       setCard("agent", "active"); setCard("router", "active"); pulse("agent", "router");
       const used = e.nodes || [];
       // If we don't have the full catalogue yet, fall back to this run's providers.
-      if (!catalogue.length) { catalogue = used.map((n) => n.provider); layoutCatalogue(); }
+      if (!catalogue.length) { catalogue = used.map((n) => n.provider); buildScene(); }
       slotOf = {}; view.used = [];
       PROV.forEach((_, i) => markUnused(`p${i}`));         // cross out everything first
       used.forEach((nd) => {
         const bi = boxOfProvider[nd.provider];
         if (bi != null) { slotOf[nd.stepId] = bi; view.used.push(bi); markUsed(`p${bi}`); }
       });
-      caption(`Agent runs the workflow — <b>${view.used.length}</b> of ${PROV.length} services used. The rest are ✕ (not called, not paid).`);
+      setPanelLabel(`SERVICES · ${view.used.length} OF ${PROV.length} SELECTED`);
+      caption(`Agent runs <b>${esc(e.workflow || "the workflow")}</b> — <b>${view.used.length}</b> of ${PROV.length} services selected. The rest are never called and never paid.`);
       break;
     }
     case "probe.sent": {
-      const s = slotOf[e.stepId]; if (s != null) { setCard(PROV[s], "active"); pulse("group", PROV[s]); }
-      caption(`Router sends <b>unpaid 402 probes</b> to the providers on <b style="color:#f6821f">Cloudflare</b>. Still $0.00.`);
+      const s = slotOf[e.stepId];
+      if (s != null) { setCard(PROV[s], "active"); setTag(PROV[s], "402"); pulse("router", PROV[s]); }
+      caption(`Router sends <b>unpaid 402 probes</b> to every selected service. Still $0.00.`);
       break;
     }
     case "challenge.received": {
       const s = slotOf[e.stepId];
-      if (s != null) { setCard(PROV[s], "active"); setRole(PROV[s], `$${e.priceUSDC}`, "price"); }
-      caption(`Each provider answers with its <b>402 price</b>. AXIS reads prices from the protocol — never hardcoded.`);
+      if (s != null) { setCard(PROV[s], "active"); setRole(PROV[s], `${e.priceUSDC} USDC`, "price"); setTag(PROV[s], "402"); }
+      caption(`Each service answers with its <b>402 price</b>. AXIS reads prices from the protocol — never hardcoded.`);
       break;
     }
     case "quote.ready":
       setCard("neon", "active"); pulse("router", "neon"); setRole("neon", "quote saved");
       coins("router", "neon", { n: 1, dur: 0.6 });
-      caption(`Signed <b>quote = $${e.totalUSDC}</b>, stored in <b style="color:#00e599">Neon</b> as OPEN (single-use).`);
+      caption(`Signed <b>quote = $${e.totalUSDC}</b>, stored in <b>Neon</b> as OPEN (single-use).`);
       break;
     case "policy.evaluated":
       setCard("guard", e.verdict === "PASS" ? "pass" : "fail"); pulse("router", "guard");
@@ -292,8 +334,9 @@ function apply(e) {
         : `<span class="warn"><b>Spend Guard BLOCKED</b> this workflow — no group, no payment.</span>`);
       break;
     case "group.composed":
-      setCard("group", "active"); pulse("router", "group"); setRole("group", `${e.groupSize} legs · Algorand`);
-      caption(`<b>One atomic group</b> on <b>Algorand</b> — ${e.groupSize} USDC payments to ${e.groupSize} different payees.`);
+      setCard("group", "active"); pulse("router", "group"); setRole("group", `${e.groupSize} legs`);
+      setPanelLabel(`ATOMIC GROUP · ${e.groupSize} LEGS`);
+      caption(`<b>One atomic group</b> — ${e.groupSize} USDC payments to ${e.groupSize} different payees, one signature.`);
       break;
     case "group.simulated":
       setCard("group", e.passed ? "active" : "failed");
@@ -345,6 +388,8 @@ function apply(e) {
     }
     case "run.completed": {
       view.status = e.status;
+      // The run is over — nothing is in flight, so no wire should still crawl.
+      clearWireDots();
       setCard("agent", e.status === "SETTLED" ? "paid" : "refunded");
       if (e.status === "REVERSED" || e.status === "FAILED") {
         // Everything unwinds: ALL coins return to where they started.
@@ -373,36 +418,117 @@ const mapState = (s) => ({ running: "running", delivered: "delivered", refunded:
 
 // ── Connect + follow the latest live run ────────────────────────────────────
 const setConn = (s) => { const el = $("conn"); el.textContent = s; el.className = "status " + s; };
+// The panel always opens clean: whatever run was last on the router is treated
+// as already-seen, so we never replay a stale run. Only a run that STARTS after
+// the panel opened is followed.
+let baselined = false;
 async function pollLatest() {
+  // The API key IS the connection. Without one there is no account to follow,
+  // and falling back to the router's global latest run would show whatever
+  // somebody else happened to be running.
+  if (!apiKey) { setConn("no key"); return; }
   try {
-    const res = await fetch(`${router}/v1/runs/latest`, { cache: "no-store" });
+    const res = await fetch(`${router}/v1/runs/latest?key=${encodeURIComponent(apiKey)}`, { cache: "no-store" });
     if (!res.ok) throw 0;
-    const { runId } = await res.json();
-    if ($("conn").textContent === "offline") setConn("online");
+    const { runId, live } = await res.json();
+    if (["offline", "no key"].includes($("conn").textContent)) setConn("online");
+    if (!baselined) {
+      baselined = true;
+      // A run still in flight when the panel opens is joined, not skipped —
+      // that is the case where you fired a task from Claude and then came
+      // looking. Only an already-finished run is baselined away.
+      if (runId && live) { follow(runId); return; }
+      followedRunId = runId ?? null;
+      if (runId) caption("Waiting for a <b>new run</b> — the previous one is not replayed.");
+      return;
+    }
     if (runId && runId !== followedRunId) follow(runId);
   } catch { setConn("offline"); }
 }
 function follow(runId) {
   followedRunId = runId; if (es) es.close();
+  QUEUE.length = 0; draining = false;      // drop any backlog from the last run
   view = fresh(); view.runId = runId; setConn("running");
   es = new EventSource(`${router}/v1/runs/${runId}/events`);
   es.onmessage = onEvent;
   for (const t of ALL_EVENTS) es.addEventListener(t, onEvent);
   es.onerror = () => setConn("reconnecting");
 }
-function onEvent(ev) { let e; try { e = JSON.parse(ev.data); } catch { return; } term(e); apply(e); }
+/**
+ * Events are queued and drained on a floor interval rather than applied the
+ * instant they arrive.
+ *
+ * A run you were not watching replays its whole buffer in one burst the moment
+ * you subscribe — ten events inside a millisecond — and the graph snaps
+ * straight to "settled" having visibly done nothing. That is exactly the case
+ * that matters here: the task is fired from Claude, Chrome throttles this
+ * panel while it is in the background, and by the time you look the run is
+ * over. Pacing the drain makes a replay animate like the live run did.
+ *
+ * A genuinely live run emits seconds apart, so the floor never delays it.
+ */
+const QUEUE = [];
+let draining = false;
+const DRAIN_MS = 220;
+
+function drain() {
+  const e = QUEUE.shift();
+  if (!e) { draining = false; return; }
+  term(e); apply(e);
+  // Only pace while a backlog exists; the last event lands immediately.
+  if (QUEUE.length) setTimeout(drain, DRAIN_MS);
+  else draining = false;
+}
+
+function onEvent(ev) {
+  let e;
+  try { e = JSON.parse(ev.data); } catch { return; }
+  QUEUE.push(e);
+  if (!draining) { draining = true; drain(); }
+}
 const ALL_EVENTS = ["run.started","probe.sent","challenge.received","quote.ready","policy.evaluated","group.composed","group.simulated","settle.retry","group.signed","group.settled","step.started","step.delivered","step.failed","step.skipped","compensation.issued","node.state","run.completed","run.error"];
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (x) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[x]));
 
-// ── URL persistence + boot ──────────────────────────────────────────────────
-chrome.storage?.local.get(["router"], (r) => { router = r.router || DEFAULT_ROUTER; $("router").value = router; fetchCatalogue(); });
-$("save").addEventListener("click", () => {
-  router = ($("router").value || DEFAULT_ROUTER).replace(/\/$/, "");
-  chrome.storage?.local.set({ router }); followedRunId = null; catalogue = []; if (es) { es.close(); es = null; } fetchCatalogue();
+// ── Connection state + boot ─────────────────────────────────────────────────
+/** Connected = we hold an API key. Everything else is an advanced override. */
+function paintConnState() {
+  const connected = !!apiKey;
+  $("gate").style.display = connected ? "none" : "block";
+  $("stage").style.display = connected ? "block" : "none";
+  if (!connected) setConn("no key");
+}
+
+chrome.storage?.local.get(["router", "apiKey"], (r) => {
+  router = r.router || DEFAULT_ROUTER; $("router").value = router;
+  apiKey = r.apiKey || ""; $("apikey").value = apiKey;
+  paintConnState();
+  if (apiKey) { fetchCatalogue(); pollLatest(); }
 });
+
+function connect() {
+  router = ($("router").value || DEFAULT_ROUTER).replace(/\/$/, "");
+  apiKey = ($("apikey").value || "").trim();
+  chrome.storage?.local.set({ router, apiKey });
+  // Re-baseline against the new key too — a saved change starts clean.
+  followedRunId = null; baselined = false; catalogue = []; if (es) { es.close(); es = null; }
+  view = fresh();
+  paintConnState();
+  if (!apiKey) return;
+  setConn("online");
+  caption("Waiting for a <b>new run</b> — the previous one is not replayed.");
+  fetchCatalogue(); pollLatest();
+}
+$("save").addEventListener("click", connect);
+$("apikey").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+$("disconnect").addEventListener("click", () => {
+  apiKey = ""; $("apikey").value = "";
+  chrome.storage?.local.set({ apiKey: "" });
+  followedRunId = null; baselined = false; if (es) { es.close(); es = null; }
+  view = fresh();
+  paintConnState();
+});
+
 view = fresh();
-fetchCatalogue();
-pollLatest();
 setInterval(pollLatest, 2000);
 
 // Chrome throttles background timers, so a run triggered from ANOTHER app
