@@ -115,27 +115,39 @@ That last row is the one most submissions will miss. Settlement succeeding does 
 ## Repo structure
 
 ```
-axis/
-├── packages/
-│   ├── router/          # quote → policy → compose → execute engine
-│   ├── guard/           # spend policy + provider trust scoring
-│   ├── receipts/        # group-linked receipt aggregation + indexer sync
-│   └── shared/          # types, CAIP-2 constants, DAG resolver
-├── providers/           # our own x402 endpoints (Hono / Workers)
-│   ├── diff-explainer/
-│   ├── guardrail-checker/
-│   ├── commit-roaster/
-│   └── bug-summarizer/
-├── apps/
-│   └── console/         # Next.js dashboard — live workflow + receipt viewer
-└── docs/
-    ├── PROTOCOL.md
-    └── DEPLOYMENT.md
+V_1/
+├── backend/
+│   ├── shared/          # zero-I/O vocabulary: Zod schemas, CAIP-2 constants,
+│   │                    #   DAG resolver, branded microUSDC money type
+│   ├── guard/           # spend policy + provider trust scoring (pure logic)
+│   ├── router/          # the engine — Node 22 + Hono. quote → policy → compose
+│   │                    #   → simulate → settle → execute → receipt, SSE, auth,
+│   │                    #   red-team, projects. (receipt aggregation lives in
+│   │                    #   engine/receipt.ts — there is no separate package)
+│   ├── providers/       # our own x402 endpoints (Hono / Cloudflare Workers)
+│   │   ├── _kit/        #   shared provider toolkit (x402, claims, on-chain, llm)
+│   │   ├── diff-explainer/  guardrail-checker/  commit-roaster/  bug-summarizer/
+│   │   └── toolbox/     #   5 more services on one Worker (code/debug/test/…)
+│   ├── sdk/             # @axis/pay — zero-dependency drop-in client
+│   ├── mcp/             # AXIS as MCP tools (list/quote/pay_and_run)
+│   ├── agent/           # autonomous budgeted agent (goal + budget → pay)
+│   └── scripts/         # testnet account setup + facilitator/group spikes
+├── frontend/
+│   └── console/         # Next.js 15 dashboard — live workflow + receipt viewer
+├── extension/           # Chrome side-panel live monitor
+└── docs/                # ARCHITECTURE · PROTOCOL · FEATURES · DEPLOYED · RUN_LOCAL
 ```
 
 ## Provider endpoints
 
-Four first-party x402 endpoints, each on a **separate Algorand address**, so the atomic group genuinely spans multiple payees rather than paying ourselves once.
+**Nine paid x402 endpoints across five Cloudflare Workers.** The four core
+providers each run on a **separate Algorand payout address**, so the `pr-review`
+atomic group genuinely spans multiple payees rather than paying ourselves once.
+Each states its price only in its own `402` — the router never hardcodes it. All
+run real LLM work behind the payment (NVIDIA NIM `meta/llama-3.1-8b-instruct`);
+no mocks in the money path.
+
+**Core providers (four distinct payees, composed by `pr-review`):**
 
 | Endpoint | Price | Returns |
 |---|---|---|
@@ -144,99 +156,206 @@ Four first-party x402 endpoints, each on a **separate Algorand address**, so the
 | `POST /commit/roast` | $0.03 | Commit message critique + rewritten alternatives |
 | `POST /bug/summarize` | $0.05 | Noisy bug report → reproducible steps + severity |
 
-All settle in **USDC ASA on Algorand Testnet**.
+**Toolbox (five services on one Worker, shared payout address):**
+
+| Endpoint | Price | Returns |
+|---|---|---|
+| `POST /code/generate` | $0.05 | Write code for a described task |
+| `POST /debug/fix` | $0.04 | Diagnose an error and propose a fix |
+| `POST /test/write` | $0.04 | Unit tests for a piece of code |
+| `POST /translate` | $0.02 | Translate text to a target language |
+| `POST /summarize` | $0.02 | Summarise a long piece of text |
+
+All settle in **USDC ASA on Algorand Testnet**. Every endpoint exposes
+`GET /health` returning its name, price, and payout address.
 
 ## Demo workflow — "Should I merge this PR?"
 
-One button. The reviewer agent runs all four endpoints, spends $0.13, and returns a merge verdict.
+One button. The `pr-review` reviewer agent runs all four core endpoints, spends
+$0.13 (+$0.01 routing fee = $0.14), and returns a merge verdict.
 
 The paying user is the **CI pipeline** — a real, non-subscription, pay-per-run business model. A repo that opens 200 PRs a month pays $26 and pays nothing on a quiet month. No seats, no API keys, no signup.
 
-The console shows, live: four 402 challenges → one group ID → four txids on AlgoExplorer → one receipt.
+The console shows, live: four 402 challenges → one group ID → four txids on the
+[Lora](https://lora.algokit.io/testnet) explorer → one receipt.
+
+**Nine workflows** ship in total — `pr-review` (4 providers), `security-scan`,
+`bug-hunt` (2), `commit-polish`, and five single-step toolbox workflows
+(`generate-code`, `debug-error`, `write-tests`, `translate-text`,
+`summarize-text`). `GET /v1/workflows` returns the live list.
 
 ## Quickstart
 
 ### Prerequisites
 
-- Node 20+, pnpm 9+
+- **Node 22.18+** (the router runs `.ts` directly via Node's native type stripping), **pnpm 11**
 - An Algorand Testnet account funded with ALGO ([Lora](https://lora.algokit.io/testnet/fund)) and test USDC ([Circle faucet](https://faucet.circle.com))
-- Test USDC ASA opt-in on every provider address
+- Test USDC ASA opt-in on every provider payout address
+- A [Neon](https://neon.tech) Postgres database and an [NVIDIA NIM](https://build.nvidia.com) API key
 
 ### Install
 
 ```bash
-git clone https://github.com/<org>/axis
-cd axis
+cd V_1
 pnpm install
 ```
 
-> **Note on packages:** the brief lists `@x402/*`. The Algorand AVM implementation ships as `@x402-avm/*` (GoPlausible's reference implementation, merged upstream into Coinbase's x402 repo). Verify against the track Discord before pinning. As of v2.6+, `algosdk` is no longer a direct dependency — the packages use `@algorandfoundation/algokit-utils` internally.
+> **Packages (verified — see `docs/PROTOCOL.md` §1):** the track brief's `@x402/*`
+> names are correct and used as-is at **2.21.0** (`@x402/core`, `@x402/avm`,
+> `@x402/fetch`, `@x402/hono`). The hyphenated `@x402-avm/*` scope **does not apply**.
+> Pin `zod@^3.24.2` (v4 breaks the SDK type boundary) and
+> `@algorandfoundation/algokit-utils@10.0.0-alpha.46` exactly. `algosdk` is not a
+> direct dependency.
 
 ### Environment
 
+Copy your secrets into `V_1/.env` and `V_1/.env.accounts` (both gitignored).
+Config is validated by Zod at boot — a missing/malformed var crashes the router
+with a readable message rather than failing mid-demo.
+
 ```env
-# Facilitator
+# ── Network (CAIP-2 is the genesis-hash form, NOT the string "algorand:testnet";
+#    defaults are baked in from @x402/avm, so these are optional) ──
+NETWORK=algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe
+ALGOD_URL=https://testnet-api.algonode.cloud
+INDEXER_URL=https://testnet-idx.algonode.cloud
+USDC_ASA_ID=10458941
 FACILITATOR_URL=https://facilitator.goplausible.xyz
 
-# Network
-NETWORK=algorand:testnet
-USDC_ASA_ID=<testnet_usdc_asa_id>
-
-# Provider payout addresses (58 chars each, distinct)
+# ── Provider payout addresses (58 chars each, all DISTINCT) ──
 PAY_TO_DIFF=...
 PAY_TO_GUARDRAIL=...
 PAY_TO_ROASTER=...
 PAY_TO_BUGSUM=...
 
-# Router agent wallet
-AGENT_MNEMONIC=...
+# ── Provider endpoint URLs ──
+PROVIDER_DIFF_URL=https://axis-diff-explainer.axis-pay.workers.dev
+PROVIDER_GUARDRAIL_URL=https://axis-guardrail-checker.axis-pay.workers.dev
+PROVIDER_ROASTER_URL=https://axis-commit-roaster.axis-pay.workers.dev
+PROVIDER_BUGSUM_URL=https://axis-bug-summarizer.axis-pay.workers.dev
+PROVIDER_TOOLBOX_URL=https://axis-toolbox.axis-pay.workers.dev   # optional (toolbox workflows)
 
-# Policy defaults
-MAX_WORKFLOW_SPEND_USDC=1.00
-MAX_HOURLY_SPEND_USDC=10.00
+# ── Router agent wallet + quote signing ──
+AGENT_MNEMONIC=...            # the router custodies this and signs the group
+QUOTE_SIGNING_KEY=...         # ≥32 chars; signs quotes so they can't be tampered
+
+# ── Persistence + auth + model ──
+DATABASE_URL=postgresql://...neon.tech/axis?sslmode=require
+JWT_SECRET=...               # signs console session JWTs (off the money path)
+NVIDIA_API_KEY=...           # NVIDIA NIM (LLM behind every provider + the agent)
+
+# ── Policy defaults (microUSDC integers) ──
+MAX_WORKFLOW_SPEND_MICRO=1000000     # $1.00
+MAX_PROVIDER_SPEND_MICRO=500000      # $0.50
+MAX_HOURLY_SPEND_MICRO=10000000      # $10.00
+MAX_HOURLY_CALLS=100
+MIN_PROVIDER_TRUST=50
+KILL_SWITCH=false
 ```
+
+> The **NVIDIA API key is set as a Worker secret** on each provider
+> (`wrangler secret put NVIDIA_API_KEY`), never seen by the router. The router's
+> own `NVIDIA_API_KEY` powers the autonomous agent's workflow choice.
 
 ### Run
 
 ```bash
-pnpm dev:providers    # all four x402 endpoints
-pnpm dev:router       # AXIS aggregator
-pnpm dev:console      # dashboard on :3000
+# terminal 1 — router (quote · execute · receipt · SSE)  → :8080
+cd V_1/backend/router && node src/index.ts
+
+# terminal 2 — console  → :3000
+cd V_1/frontend/console && NEXT_PUBLIC_ROUTER_URL=http://localhost:8080 npx next dev
 ```
+
+The providers are already deployed to Cloudflare Workers (see `docs/DEPLOYED.md`);
+the router calls them over HTTPS. To run a provider locally instead:
+`cd backend/providers/diff-explainer && npx wrangler dev`. See `docs/RUN_LOCAL.md`.
 
 ### Deploy
 
-Providers deploy to Cloudflare Workers (Hono). Router and console to Vercel. See `docs/DEPLOYMENT.md`.
+Providers → **Cloudflare Workers** (`wrangler deploy`). Router → **Railway**
+(Node 22 long-running process — *not* Vercel serverless, which caps execution
+below the fan-out + LLM latency). Console → **Vercel**. Database → **Neon**.
+See `docs/DEPLOYED.md`.
 
 ## API
+
+> **Signing model:** the **router custodies the agent wallet** (`AGENT_MNEMONIC`)
+> and produces the single group signature itself. Clients — the console, the SDK,
+> the MCP server, the autonomous agent — only call HTTP and never touch a key.
+> `execute` therefore takes **no `signedGroup`**; it takes a `quoteId`.
 
 ### `POST /v1/workflow/quote`
 
 ```json
 {
   "workflow": "pr-review",
-  "inputs": { "repo": "org/repo", "pr": 42 },
-  "constraints": { "maxSpendUSDC": "0.50" }
+  "agentAddress": "NG5S…58CHARS",
+  "inputs": { "diff": "- const t=10\n+ const t=60", "commitMessage": "bump timeout" }
 }
 ```
 
-Returns the resolved DAG, per-step pricing, total cost, policy verdict, and a `quoteId` with TTL. **No payment occurs.**
+Fans out unpaid probes, reads each provider's `402` price, resolves the DAG,
+runs the spend guard, and returns `{ runId, quoteId, dag, legs[], subtotalUSDC,
+routingFeeUSDC, totalUSDC, expiresAt, signature }` with a TTL. A policy `FAIL`
+comes back as **HTTP 402** with the violated rule. **No payment occurs.**
 
 ### `POST /v1/workflow/execute`
 
+Header: `Idempotency-Key: <uuid>` (a retry with the same key replays the stored
+response — a CI pipeline can never double-pay).
+
 ```json
-{ "quoteId": "...", "signedGroup": "..." }
+{ "quoteId": "...", "runId": "...", "chaos": "roast", "projectId": "..." }
 ```
 
-Submits the atomic group, settles via facilitator, executes all steps, returns results + `receiptId`.
+Verifies + single-uses the quote, composes ONE atomic group across N payees,
+simulates (hard gate), signs, settles via the facilitator, runs every provider
+with its payment proof, refunds any paid-but-undelivered leg on-chain, and
+returns `{ status, groupId, confirmedRound, txids[], … }`. `runId`/`projectId`
+are optional; `chaos` is a demo flag that forces one leg to fail after payment.
 
-### `GET /v1/receipt/:id`
+### `GET /v1/receipt/:id` · `GET /v1/receipts`
 
-Unified receipt — group ID, every txid, every provider, per-step cost, total, status (`SETTLED` / `PARTIAL` / `REVERSED`), and any compensation txids.
+The unified receipt — group ID, every txid, every provider result (full, no
+truncation), per-step cost, total, status (`SETTLED` / `PARTIAL` / `FAILED`),
+and any compensation txids. `/v1/receipts` lists every run from Neon, newest first.
 
-### `GET /v1/policy` · `PUT /v1/policy`
+### The rest of the surface
 
-Read and update spend policy for the calling agent.
+| Route | Purpose |
+|---|---|
+| `GET /v1/workflows` | the workflows an agent can run (id + provider steps + inputs) |
+| `POST /v1/agent/run` | autonomous agent — `{ goal, budgetUSDC }` → picks a workflow, pays within budget, streams on a `runId` |
+| `POST /v1/redteam/prime` · `POST /v1/redteam/:id` | fire the arXiv attacks (`replay`/`cross-resource`/`cache`) at our own live endpoints |
+| `GET /v1/refunds` · `GET /v1/usage` | on-chain refunds; spend totals |
+| `POST/GET /v1/projects` · `GET /v1/projects/:id` | group runs and see per-project spend |
+| `POST /v1/auth/signup` · `POST /v1/auth/login` | JWT accounts (scrypt + HS256, `node:crypto` only) |
+| `GET /v1/runs/latest` · `GET /v1/runs/:id/events` | latest run id; the live SSE event stream |
+| `GET /healthz` · `GET /readyz` | liveness; readiness (every configured provider answers `/health`) |
+
+> There is **no `/v1/policy` endpoint** and no generated `/openapi.json` in this
+> build — the spend policy runs internally between quote and compose, and its
+> full verdict (every rule + headroom) is returned inside the quote and streamed
+> as a `policy.evaluated` SSE event.
+
+## Beyond the core — the agent-facing layer
+
+The router owns the wallet and the protocol; everything below is a thin,
+key-free client on top of it (see `docs/FEATURES.md` for verification commands):
+
+- **`@axis/pay` SDK** (`backend/sdk`) — zero-dependency drop-in: one `pay()` =
+  quote → budget gate → atomic settle → receipt.
+- **MCP server** (`backend/mcp`) — exposes `list_workflows` / `quote_workflow` /
+  `pay_and_run` so Claude Desktop, Cursor, or any MCP agent can atomically pay N
+  x402 APIs natively.
+- **Autonomous budgeted agent** (`backend/agent`) — goal + USDC budget → an LLM
+  picks the workflow and pays on its own, budget enforced twice (agent + guard).
+- **Chrome live-monitor extension** (`extension/`) — a side-panel animated
+  flowchart of the real stack with coins flowing on settle and back on refund.
+- **Security hardening** — the three server-side attacks from *"Five Attacks on
+  x402"* (resource binding, single-use claims, no-store caching) are mitigated
+  and provable live on the console's **Start attack** page.
 
 ## How this maps to the judging criteria
 
@@ -246,7 +365,7 @@ Read and update spend policy for the calling agent.
 | **25%** | Real Pay-Per-Call Model | Paying user is the CI pipeline. Per-workflow-run pricing, no subscription, no seats. AXIS takes a routing fee per run. |
 | **20%** | Technical Execution & Algorand | Native atomic transaction groups across multiple payees — an Algorand-specific capability, not a portable pattern. USDC ASA settlement, fee abstraction, `simulateTransactions` pre-flight, every txid surfaced in the response. |
 | **15%** | Innovation & Utility | Multi-endpoint atomicity, unified receipts, and spend policy enforcement are the missing primitives between "x402 works" and "agents can actually use it." |
-| **10%** | Documentation & Deployment | Live testnet endpoints, this README, `PROTOCOL.md`, `DEPLOYMENT.md`, mainnet-ready config (network is a single CAIP-2 constant). |
+| **10%** | Documentation & Deployment | Live testnet endpoints, this README plus `ARCHITECTURE.md`, `PROTOCOL.md`, `FEATURES.md`, `DEPLOYED.md`, and `RUN_LOCAL.md`; mainnet-ready config (network is a single CAIP-2 constant). |
 
 ## Mainnet readiness
 

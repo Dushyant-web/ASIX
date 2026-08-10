@@ -3,16 +3,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, session } from "../../lib/api";
+import { SignInPage } from "../../components/ui/sign-in.tsx";
+import { AxisWorkflow } from "../../components/ui/axis-workflow.tsx";
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const email = String(form.get("email") ?? "");
+    const password = String(form.get("password") ?? "");
     setErr(null);
     setBusy(true);
     try {
@@ -26,15 +29,35 @@ export default function Login() {
   }
 
   return (
-    <main>
-      <h1>Log in</h1>
-      <form onSubmit={submit}>
-        <p><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" required /></p>
-        <p><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" required /></p>
-        <button type="submit" disabled={busy}>{busy ? "…" : "log in"}</button>
-      </form>
-      {err && <p>{err}</p>}
-      <p>No account? <Link href="/signup">Sign up</Link></p>
-    </main>
+    <div className="auth-shell relative">
+      <div className="lp-lights" aria-hidden="true"><i /><i /><i /><i /></div>
+      <div className="lp-mesh" aria-hidden="true" />
+      <div className="lp-grain" aria-hidden="true" />
+
+      <SignInPage
+        title={<span className="font-normal text-foreground tracking-tighter">Welcome back</span>}
+        description="Open your receipts, projects and spend history."
+        busy={busy}
+        error={err}
+        submitLabel="Sign in"
+        pendingLabel="Signing in…"
+        onSignIn={submit}
+        onGoogleSignIn={() =>
+          setErr("Google sign-in isn't wired up — the router issues its own JWTs. Use your email and password.")
+        }
+        onResetPassword={() =>
+          setErr("Password reset isn't available yet. There is no reset endpoint on the router.")
+        }
+        hero={<AxisWorkflow />}
+        footer={
+          <>
+            New to AXIS?{" "}
+            <Link href="/signup" className="text-foreground hover:underline">
+              Create an account
+            </Link>
+          </>
+        }
+      />
+    </div>
   );
 }

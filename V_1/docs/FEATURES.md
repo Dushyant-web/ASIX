@@ -38,7 +38,8 @@ pnpm install
 # .env and .env.accounts must exist (gitignored) with:
 #   AGENT_MNEMONIC, QUOTE_SIGNING_KEY, DATABASE_URL (Neon),
 #   PAY_TO_DIFF / PAY_TO_GUARDRAIL / PAY_TO_ROASTER / PAY_TO_BUGSUM,
-#   PROVIDER_*_URL (the four Cloudflare Workers),
+#   PROVIDER_DIFF_URL / _GUARDRAIL_URL / _ROASTER_URL / _BUGSUM_URL,
+#   PROVIDER_TOOLBOX_URL (optional — the 5-service toolbox Worker),
 #   NVIDIA_API_KEY, JWT_SECRET
 ```
 
@@ -82,7 +83,13 @@ curl -s -X POST localhost:8080/v1/workflow/execute \
 # → { status:"SETTLED", groupId, confirmedRound, txids:[4] }
 ```
 **Pass criteria:** one `groupId`, four `txids` to four **different** addresses, all
-clickable on AlgoExplorer testnet; the whole workflow used **one** signature.
+clickable on the [Lora](https://lora.algokit.io/testnet) explorer; the whole
+workflow used **one** signature.
+
+> **Scope note:** the four `pr-review` providers are the multi-payee core, but the
+> build ships **nine paid endpoints across five Workers** (the `toolbox` Worker adds
+> `/code/generate`, `/debug/fix`, `/test/write`, `/translate`, `/summarize`) and
+> **nine workflows** total. `GET /v1/workflows` returns the live list.
 
 ---
 
@@ -239,16 +246,19 @@ node src/cli.ts "Review this PR: - const t=10 / + const t=60" 1.00   # → SETTL
 
 ## PART D — Console & tooling
 
-### D1. Web console (Next.js)
+### D1. Web console (Next.js 15)
 
-Pages: **Run workflow**, **Test failure**, **Start attack**, **Receipts**,
-**How it works**, plus **Login / Sign up**.
+A marketing **landing page** at `/`, then the dashboard: **Run workflow**
+(`/dashboard`), **Autonomous agent**, **Test failure**, **Start attack**,
+**Receipts**, **Refunds**, **Projects**, **How it works**, plus **Login / Sign up**.
 
 **Verify:**
 ```bash
-cd V_1/frontend/console && npx next dev      # → http://localhost:3000
+cd V_1/frontend/console && NEXT_PUBLIC_ROUTER_URL=http://localhost:8080 npx next dev   # → :3000
 ```
-Click *"Should I merge this PR?"* → the full flow streams live via SSE.
+Open `/` for the landing, then `/dashboard` → run a workflow → the full flow streams
+live via SSE. (If the router is offline, the Run page falls back to a mock stream so
+the UI still animates.)
 
 ---
 
@@ -316,7 +326,8 @@ cd V_1 && node backend/scripts/spike-facilitator.ts    # facilitator /verify pas
 | MCP server | ✅ tested |
 | Autonomous budgeted agent | ✅ tested |
 | Console + JWT auth + Chrome live-monitor extension | ✅ done |
+| Providers deployed to Cloudflare Workers (9 endpoints / 5 Workers) | ✅ live |
+| Landing page + console visual design | ✅ in progress |
 | **P9 deploy** (router → Railway, console → Vercel) | ❌ the one remaining gap |
-| F2 UI styling (team) | ⬜ pending |
 
 **Housekeeping:** rotate the NVIDIA + Neon credentials that were shared in chat.
