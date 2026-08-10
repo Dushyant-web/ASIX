@@ -55,42 +55,21 @@ export function Sidebar() {
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <nav className="sidebar">
-      <Link href="/dashboard" className="sidebar-brand">
-        <Logo />
-        <span className="name">AX<b>I</b>S</span>
-      </Link>
-
-      {SECTIONS.map((section) => (
-        <div key={section}>
-          <div className="sidebar-section">{section}</div>
-          <ul className="sidebar-nav">
-            {NAV.filter((n) => n.section === section).map((n) => (
-              <li key={n.href}>
-                <Link href={n.href} className={isActive(n.href) ? "active" : ""}>
-                  <span className="ico">{n.ico}</span>
-                  {n.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-
-      <div className="sidebar-foot">
-        {email ? (
-          <>
-            <div className="dim" style={{ marginBottom: 4 }}>{email}</div>
-            <button type="button" onClick={logout}>log out</button>
-          </>
-        ) : (
-          <>
-            <Link href="/login">Log in</Link>
-            {" · "}
-            <Link href="/signup">Sign up</Link>
-          </>
-        )}
-      </div>
+    <nav>
+      <h2>
+        <img src="/axis_logo.svg" alt="AXIS" width={26} height={26} style={{ verticalAlign: "middle", marginRight: 8 }} />
+        AXIS
+      </h2>
+      <ul>
+        {NAV.map((n) => (
+          <li key={n.href}><Link href={n.href}>{n.label}</Link></li>
+        ))}
+      </ul>
+      {email ? (
+        <p>{email} · <button type="button" onClick={logout}>log out</button></p>
+      ) : (
+        <p><Link href="/login">Log in</Link> · <Link href="/signup">Sign up</Link></p>
+      )}
     </nav>
   );
 }

@@ -15,19 +15,20 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { paidHandler, ClaimDO, complete, type ProviderConfig, type ProviderEnv } from "@axis/provider-kit";
 
-const PAY = "PAY_TO_TOOLBOX";
-const cfg = (name: string, priceUSDC: string, description: string): ProviderConfig =>
-  ({ name, priceUSDC, description, payToEnvKey: PAY });
+// Each service has its OWN distinct payout address, so a workflow using several
+// of them settles as a genuine multi-payee atomic group.
+const cfg = (name: string, priceUSDC: string, description: string, payToEnvKey: string): ProviderConfig =>
+  ({ name, priceUSDC, description, payToEnvKey });
 
 const app = new Hono();
 
 app.get("/health", (c) =>
-  c.json({ provider: "toolbox", payTo: (c.env as ProviderEnv)[PAY] ?? null, services: ["code/generate", "debug/fix", "test/write", "translate", "summarize"] }));
+  c.json({ provider: "toolbox", services: ["code/generate", "debug/fix", "test/write", "translate", "summarize"] }));
 
 // ── 1. Code generator ──────────────────────────────────────────────────────
 app.post("/code/generate", (c) =>
   paidHandler(c, {
-    cfg: cfg("code-generator", "0.05", "Write code for a described task"),
+    cfg: cfg("code-generator", "0.05", "Write code for a described task", "PAY_TO_TOOL_CODE"),
     input: z.object({ task: z.string().min(1, "task is required"), language: z.string().optional() }),
     run: async ({ task, language }, env) => ({
       code: await complete(env,
@@ -40,7 +41,7 @@ app.post("/code/generate", (c) =>
 // ── 2. Debugger ────────────────────────────────────────────────────────────
 app.post("/debug/fix", (c) =>
   paidHandler(c, {
-    cfg: cfg("debugger", "0.04", "Diagnose an error and propose a fix"),
+    cfg: cfg("debugger", "0.04", "Diagnose an error and propose a fix", "PAY_TO_TOOL_DEBUG"),
     input: z.object({ error: z.string().min(1, "error is required"), code: z.string().optional() }),
     run: async ({ error, code }, env) => ({
       diagnosis: await complete(env,
@@ -53,7 +54,7 @@ app.post("/debug/fix", (c) =>
 // ── 3. Test writer ─────────────────────────────────────────────────────────
 app.post("/test/write", (c) =>
   paidHandler(c, {
-    cfg: cfg("test-writer", "0.04", "Write unit tests for code"),
+    cfg: cfg("test-writer", "0.04", "Write unit tests for code", "PAY_TO_TOOL_TEST"),
     input: z.object({ code: z.string().min(1, "code is required"), framework: z.string().optional() }),
     run: async ({ code, framework }, env) => ({
       tests: await complete(env,
@@ -66,7 +67,7 @@ app.post("/test/write", (c) =>
 // ── 4. Translator ──────────────────────────────────────────────────────────
 app.post("/translate", (c) =>
   paidHandler(c, {
-    cfg: cfg("translator", "0.02", "Translate text to a target language"),
+    cfg: cfg("translator", "0.02", "Translate text to a target language", "PAY_TO_TOOL_TRANSLATE"),
     input: z.object({ text: z.string().min(1, "text is required"), language: z.string().min(1, "language is required") }),
     run: async ({ text, language }, env) => ({
       translation: await complete(env,
@@ -78,7 +79,7 @@ app.post("/translate", (c) =>
 // ── 5. Summarizer ──────────────────────────────────────────────────────────
 app.post("/summarize", (c) =>
   paidHandler(c, {
-    cfg: cfg("summarizer", "0.02", "Summarise a long piece of text"),
+    cfg: cfg("summarizer", "0.02", "Summarise a long piece of text", "PAY_TO_TOOL_SUMMARIZE"),
     input: z.object({ text: z.string().min(1, "text is required") }),
     run: async ({ text }, env) => ({
       summary: await complete(env,

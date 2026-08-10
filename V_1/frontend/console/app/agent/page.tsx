@@ -4,7 +4,21 @@ import { api } from "../../lib/api.ts";
 import { useRunStream } from "../../lib/useRunStream.ts";
 import { ProtocolRail, WorkflowGraph, PolicyPanel, GroupPanel, ReceiptStrip, Outcome, EventLog } from "../../components/RunView.tsx";
 import { ProjectPicker } from "../../components/ProjectPicker.tsx";
+import { AllServices } from "../../components/AllServices.tsx";
 import { isTerminal } from "../../lib/state-machine.ts";
+
+/** Pull the human-readable text out of a provider's result preview (which is JSON). */
+function readable(preview: string): string {
+  try {
+    const o = JSON.parse(preview);
+    if (o && typeof o === "object") {
+      return Object.values(o).map((v) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))).join("\n\n");
+    }
+    return String(o);
+  } catch {
+    return preview;
+  }
+}
 
 export default function AgentPage() {
   const [goal, setGoal] = useState(
@@ -14,12 +28,13 @@ export default function AgentPage() {
   const [projectId, setProjectId] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [retries, setRetries] = useState(0);
   const view = useRunStream(runId);
 
   const streaming = !!runId && !isTerminal(view);
 
-  async function run(e: React.FormEvent) {
-    e.preventDefault();
+  async function run(e?: React.FormEvent) {
+    e?.preventDefault();
     setErr(null);
     setRunId(null);
     try {
@@ -44,7 +59,7 @@ export default function AgentPage() {
         <li>If it fits, it pays every service in <b>one single payment</b> and shows you their answers.</li>
       </ol>
 
-      <form onSubmit={run}>
+      <form onSubmit={(e) => { setRetries(0); run(e); }}>
         <p>
           <label><b>Goal</b> — describe the task in plain English:<br />
             <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} cols={70} required />
@@ -68,6 +83,21 @@ export default function AgentPage() {
       {runId ? (
         <>
           <Outcome view={view} />
+          {isTerminal(view) && retries < 2
+            ? <p><button type="button" onClick={() => { setRetries((r) => r + 1); run(); }}>Manual retry ({2 - retries} left)</button> — re-run this goal</p>
+            : null}
+          <AllServices view={view} />
+          {Object.values(view.nodes).some((n) => n.preview) && (
+            <section>
+              <h2>Results</h2>
+              {Object.values(view.nodes).filter((n) => n.preview).map((n) => (
+                <div key={n.stepId}>
+                  <b>{n.provider}</b>
+                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{readable(n.preview!)}</pre>
+                </div>
+              ))}
+            </section>
+          )}
           <ProtocolRail view={view} />
           <PolicyPanel view={view} />
           <WorkflowGraph view={view} />

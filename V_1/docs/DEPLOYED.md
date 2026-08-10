@@ -15,18 +15,19 @@ spans multiple payees.
 | commit-roaster | https://axis-commit-roaster.axis-pay.workers.dev | $0.03 | `POST /commit/roast` |
 | bug-summarizer | https://axis-bug-summarizer.axis-pay.workers.dev | $0.05 | `POST /bug/summarize` |
 
-## Toolbox — five services on one Worker
+**Toolbox worker** — 5 more services on one worker, each with its own distinct
+payout address: `https://axis-toolbox.axis-pay.workers.dev`
 
-One Worker (`axis-toolbox`), one shared payout address (`PAY_TO_TOOLBOX`), five
-independent x402 resources — each its own price and payment binding.
+| Service | Price | Endpoint |
+|---|---|---|
+| code-generator | $0.05 | `POST /code/generate` |
+| debugger | $0.04 | `POST /debug/fix` |
+| test-writer | $0.04 | `POST /test/write` |
+| translator | $0.02 | `POST /translate` |
+| summarizer | $0.02 | `POST /summarize` |
 
-| Service | URL | Price | Endpoint |
-|---|---|---|---|
-| code-generator | https://axis-toolbox.axis-pay.workers.dev | $0.05 | `POST /code/generate` |
-| debugger | https://axis-toolbox.axis-pay.workers.dev | $0.04 | `POST /debug/fix` |
-| test-writer | https://axis-toolbox.axis-pay.workers.dev | $0.04 | `POST /test/write` |
-| translator | https://axis-toolbox.axis-pay.workers.dev | $0.02 | `POST /translate` |
-| summarizer | https://axis-toolbox.axis-pay.workers.dev | $0.02 | `POST /summarize` |
+**9 services total**, all distinct USDC-opted-in payout addresses — so a single
+workflow (`deep-review`) settles as a 7-payee atomic group.
 
 Each exposes `GET /health` returning its provider name, price, and payout address.
 

@@ -1,10 +1,12 @@
 # @axis/agent — autonomous budgeted agent
 
-Give it a **goal** and a **USDC budget**. It picks a workflow, fills its inputs
-with an LLM (NVIDIA NIM), quotes it, and pays the providers **atomically** — but
-only within budget. The budget is enforced twice: the agent declines a quote
-over budget, and the router's Spend Policy Guard is the hard backstop (a FAIL
-means nothing is ever signed). So even a misbehaving agent can't overspend.
+Give it a **goal** and a **USDC budget**. It picks one of the **9 services** that
+genuinely fits the goal, fills its inputs with an LLM (NVIDIA NIM), quotes it, and
+pays **atomically** — but only within budget. If **no** service can do the job
+(e.g. "create an image"), it **refuses and pays nothing**. The budget is enforced
+twice: the agent declines a quote over budget, and the router's Spend Policy Guard
+is the hard backstop (a FAIL means nothing is ever signed). So even a misbehaving
+agent can't overspend or pay for a task it can't deliver.
 
 ```bash
 # needs the router running + NVIDIA_API_KEY in ../../.env

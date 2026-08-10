@@ -96,20 +96,41 @@ export const COMMIT_POLISH: WorkflowDef = {
   ],
 };
 
-/** A single-step workflow that calls one toolbox service. */
-const toolbox = (id: string, path: string, input: Record<string, string>): WorkflowDef => ({
+/** A single-step workflow that calls one toolbox service (its own distinct payee). */
+const toolbox = (id: string, provider: string, path: string, input: Record<string, string>): WorkflowDef => ({
   id,
-  steps: [{ id: "tool", provider: "toolbox", endpointEnv: "PROVIDER_TOOLBOX_URL", path, input }],
+  steps: [{ id: "tool", provider, endpointEnv: "PROVIDER_TOOLBOX_URL", path, input }],
 });
 
 /** The 5 toolbox services, each as its own workflow. */
-export const GENERATE_CODE = toolbox("generate-code", "/code/generate", { task: "${inputs.task}" });
-export const DEBUG_ERROR = toolbox("debug-error", "/debug/fix", { error: "${inputs.error}" });
-export const WRITE_TESTS = toolbox("write-tests", "/test/write", { code: "${inputs.code}" });
-export const TRANSLATE_TEXT = toolbox("translate-text", "/translate", { text: "${inputs.text}", language: "${inputs.language}" });
-export const SUMMARIZE_TEXT = toolbox("summarize-text", "/summarize", { text: "${inputs.text}" });
+export const GENERATE_CODE = toolbox("generate-code", "code-generator", "/code/generate", { task: "${inputs.task}" });
+export const DEBUG_ERROR = toolbox("debug-error", "debugger", "/debug/fix", { error: "${inputs.error}" });
+export const WRITE_TESTS = toolbox("write-tests", "test-writer", "/test/write", { code: "${inputs.code}" });
+export const TRANSLATE_TEXT = toolbox("translate-text", "translator", "/translate", { text: "${inputs.text}", language: "${inputs.language}" });
+export const SUMMARIZE_TEXT = toolbox("summarize-text", "summarizer", "/summarize", { text: "${inputs.text}" });
+
+/**
+ * DEEP REVIEW — the flagship BIGGER atomic group. Seven providers, seven
+ * DISTINCT payees, all running at once on one PR: explain, safety-check, commit
+ * critique, bug hunt, TL;DR, tests, and a suggested implementation. One
+ * signature, all-or-nothing, and any provider that fails to deliver is refunded
+ * on chain. No step depends on another, so every leg runs simultaneously.
+ */
+export const DEEP_REVIEW: WorkflowDef = {
+  id: "deep-review",
+  steps: [
+    { id: "diff", provider: "diff-explainer", endpointEnv: "PROVIDER_DIFF_URL", path: "/diff/explain", input: { diff: "${inputs.diff}" } },
+    { id: "guardrail", provider: "guardrail-checker", endpointEnv: "PROVIDER_GUARDRAIL_URL", path: "/guardrail/check", input: { text: "${inputs.diff}" } },
+    { id: "roast", provider: "commit-roaster", endpointEnv: "PROVIDER_ROASTER_URL", path: "/commit/roast", input: { message: "${inputs.commitMessage}" } },
+    { id: "bugsum", provider: "bug-summarizer", endpointEnv: "PROVIDER_BUGSUM_URL", path: "/bug/summarize", input: { report: "${inputs.diff}" } },
+    { id: "summary", provider: "summarizer", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/summarize", input: { text: "${inputs.diff}" } },
+    { id: "tests", provider: "test-writer", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/test/write", input: { code: "${inputs.diff}" } },
+    { id: "suggest", provider: "code-generator", endpointEnv: "PROVIDER_TOOLBOX_URL", path: "/code/generate", input: { task: "${inputs.diff}" } },
+  ],
+};
 
 export const WORKFLOWS: Record<string, WorkflowDef> = {
+  "deep-review": DEEP_REVIEW,
   "pr-review": PR_REVIEW,
   "security-scan": SECURITY_SCAN,
   "bug-hunt": BUG_HUNT,

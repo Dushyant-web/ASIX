@@ -1,3 +1,5 @@
+<img src="./logo.svg" alt="AXIS" width="72" align="right" />
+
 # @axis/mcp — AXIS as an MCP tool
 
 An [MCP](https://modelcontextprotocol.io) server that lets any MCP-capable AI
@@ -8,9 +10,16 @@ Algorand** and get a unified receipt back — natively, as a tool.
 
 | Tool | What it does |
 |---|---|
-| `list_workflows` | the multi-provider workflows this router can run |
+| `list_workflows` | the 9 multi-provider workflows this router can run |
 | `quote_workflow` | price a workflow with **zero** payment (+ spend-policy verdict) |
 | `pay_and_run` | settle **one atomic group** (one signature, all-or-nothing) and return every provider's result + receipt |
+| `list_projects` | projects that group runs, with per-project spend + refunds |
+| `create_project` | create a project; pass its id as `projectId` to `pay_and_run` |
+
+`quote_workflow` and `pay_and_run` also accept a **`filePath`** — an absolute path
+to a local file whose contents become the diff to review, so you can say *"review
+the file at /path/…"* instead of pasting a diff. `pay_and_run` accepts an optional
+`projectId` to tag the run.
 
 `pay_and_run` takes an optional `budgetUSDC` — if the quote exceeds it, nothing
 is paid. If a provider takes payment and fails, its leg is refunded on-chain and
