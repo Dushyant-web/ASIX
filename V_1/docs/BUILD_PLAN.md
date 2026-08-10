@@ -6,6 +6,27 @@
 > **Nothing from "Future Features" enters the repo until Phase 5 is green.**
 > Working properly beats working broadly. A judge cannot score a half-built feature, but they will absolutely notice a broken one.
 
+> ### ⚠️ As-built deltas (this doc is the *plan*; where it and the code disagree, the code wins)
+> The plan below is preserved for its phase/gate reasoning, but the shipped MVP
+> diverged in a few load-bearing ways. For current fact, defer to `ARCHITECTURE.md`,
+> `DEPLOYED.md`, and `FEATURES.md`:
+> - **LLM is NVIDIA NIM `meta/llama-3.1-8b-instruct`**, called via a raw `fetch`
+>   client in `providers/_kit/src/llm.ts` — **not** Claude / `@anthropic-ai/sdk`.
+>   Every "call Claude" / `claude.ts` / `ANTHROPIC_API_KEY` below now means NVIDIA
+>   NIM / `llm.ts` / `NVIDIA_API_KEY`.
+> - **Layout is `backend/` + `frontend/`**, not `packages/` + `apps/`. The `shared`,
+>   `guard`, `router`, `providers`, `sdk`, `mcp`, `agent`, `scripts` packages live
+>   under `backend/`; the console under `frontend/`; the provider scaffold is
+>   `providers/_kit/` (not `_template/`).
+> - **Five provider Workers / nine paid endpoints / nine workflows** — the four core
+>   providers plus a `toolbox` Worker (`/code/generate`, `/debug/fix`, `/test/write`,
+>   `/translate`, `/summarize`).
+> - **The router is custodial** — it holds `AGENT_MNEMONIC` and produces the single
+>   signature. `execute` takes a `quoteId`, **not** a `signedGroup`.
+> - **Shipped beyond this plan:** `@axis/pay` SDK, an MCP server, an autonomous
+>   budgeted agent, a Chrome live-monitor extension, JWT auth, projects/usage, and a
+>   marketing landing page — see `FEATURES.md`.
+
 ---
 
 ## Table of Contents

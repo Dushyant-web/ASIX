@@ -1,7 +1,12 @@
 # Deployed endpoints
 
 Live x402 provider endpoints on Cloudflare Workers, Algorand testnet USDC.
-Each on its own worker with its own distinct payout address.
+**Nine paid endpoints across five Workers.**
+
+## Core providers — four distinct payout addresses
+
+The `pr-review` demo composes these four into one atomic group, so it genuinely
+spans multiple payees.
 
 | Provider | URL | Price | Endpoint |
 |---|---|---|---|
@@ -29,5 +34,9 @@ Each exposes `GET /health` returning its provider name, price, and payout addres
 Unpaid `POST` returns a `402` challenge stating the price; the router reads the
 price from there rather than hardcoding it.
 
-Model: NVIDIA NIM `meta/llama-3.1-8b-instruct`. Replay claims backed by
-Cloudflare KV (`AXIS_CLAIMS`).
+**Model:** NVIDIA NIM `meta/llama-3.1-8b-instruct` (OpenAI chat-completions wire
+format, `temperature 0.2`), keyed per-Worker via the `NVIDIA_API_KEY` secret.
+
+**Replay protection:** the four core providers back single-use claims with
+Cloudflare KV (`AXIS_CLAIMS`); `toolbox` uses a **Durable Object** (`CLAIM_DO`)
+for linearizable claims that block a concurrent replay flood outright.

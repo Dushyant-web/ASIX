@@ -132,7 +132,7 @@ Three consequences fall out with no extra engineering:
 | **Facilitator** | `https://facilitator.goplausible.xyz` | The provided facilitator service. Verifies and settles payment, co-signs as `feePayer`. |
 | **Settlement asset** | USDC ASA on Algorand — testnet for MVP, **mainnet encouraged** | Per the brief. Mainnet is a four-variable config change (§18) — worth doing if time allows, it is explicitly encouraged. |
 | **Chain utils** | `@algorandfoundation/algokit-utils` | For raw group composition and `simulateTransactions` where the x402 SDK doesn't expose it. `algosdk` is **not** a direct dependency in recent versions — do not add it unless the Phase 0 spike proves you need it. |
-| **LLM** | `@anthropic-ai/sdk`, model `claude-opus-5` | All four provider endpoints are generate/summarize/classify tasks. See §10 for exact parameters. |
+| **LLM** | **NVIDIA NIM** `meta/llama-3.1-8b-instruct` (raw `fetch`, OpenAI chat-completions wire format) | Every provider endpoint is a generate/summarize/classify task. NIM is fast, cheap, and runs on `workerd` with no SDK; a raw ~40-line client keeps the Worker bundle small. See §10 for exact parameters. |
 | **Frontend** | **Next.js 15** (App Router) + React 19 | The README specifies it, it deploys to Vercel with zero config, and route handlers give a clean place to proxy the router later if the API surface needs hiding. Client components do the work; no RSC data fetching needed. |
 | **Frontend data** | TanStack Query + native `EventSource` (SSE) | Query for quote/receipt fetches, SSE for the live run stream. SSE over WebSocket: one-way, no handshake, survives proxies, ~10 lines of server code. |
 | **Styling** | Tailwind v4 + shadcn/ui | 20% of the score is judged through the console. This is the fastest route to something that looks deliberate rather than assembled. |
@@ -187,7 +187,7 @@ Three consequences fall out with no extra engineering:
 │     $0.03             $0.02             $0.03            $0.05        │
 │   PAY_TO_DIFF     PAY_TO_GUARDRAIL   PAY_TO_ROASTER   PAY_TO_BUGSUM   │
 │        └──────────── 4 DISTINCT ALGORAND ADDRESSES ────────────┘      │
-│                          each calls Claude                            │
+│                       each calls NVIDIA NIM                           │
 └───────────────────────────────────────────────────────────────────────┘
                                     │
                     ┌───────────────┴────────────────┐
@@ -203,12 +203,13 @@ Three consequences fall out with no extra engineering:
 
 | Component | Owns | Does NOT own |
 |---|---|---|
-| `packages/shared` | Zod schemas, TS types, CAIP-2 constants, DAG resolver, money math (integer microUSDC) | Any I/O, any DB access |
-| `packages/guard` | Spend policy evaluation, velocity windows, provider trust scoring, kill switch | Signing, chain calls |
-| `packages/router` | Quote fan-out, group composition, simulation, settlement, execution, SSE | LLM calls, UI |
-| `packages/receipts` | Receipt aggregation from `runs` + `legs`, indexer enrichment | Payment logic |
-| `providers/*` | x402 challenge issuance, payment verification, LLM call, result | Anything about groups or DAGs |
-| `apps/console` | Visualization only | Any business logic, any key material |
+| `backend/shared` | Zod schemas, TS types, CAIP-2 constants, DAG resolver, money math (integer microUSDC) | Any I/O, any DB access |
+| `backend/guard` | Spend policy evaluation, velocity windows, provider trust scoring, kill switch | Signing, chain calls |
+| `backend/router` | Quote fan-out, group composition, simulation, settlement, execution, receipt aggregation, SSE, auth | LLM inference, UI |
+| `backend/router/engine/receipt.ts` | Receipt aggregation from `runs` + `legs`, refunds, usage, projects (folded in — no separate package) | Payment logic |
+| `backend/providers/*` | x402 challenge issuance, payment verification, LLM call, result | Anything about groups or DAGs |
+| `backend/{sdk,mcp,agent}` | Key-free HTTP clients over the router (drop-in SDK, MCP tools, autonomous agent) | Any private key |
+| `frontend/console` | Visualization only | Any business logic, any key material |
 
 **Money is always `bigint` microUSDC (6 decimals) internally.** Never a JS `number`, never a float. Formatting to `"$0.13"` happens only at the display boundary. This is non-negotiable and enforced by a Zod brand type in `shared`.
 
@@ -271,139 +272,97 @@ Final status is one of `SETTLED` · `PARTIAL` · `REVERSED` · `FAILED`.
 
 ## 6. Folder Structure
 
+> **As built.** The workspace root is `V_1/` (pnpm workspaces + Turborepo). The
+> textbook `packages/`+`apps/` split was collapsed into `backend/`+`frontend/`
+> during the build, and several things planned as separate packages (receipt
+> aggregation, simulate, compensate, preflight) were folded into the router's
+> `engine/` and `chain/` rather than shipped standalone. The tree below is the
+> real one.
+
 ```
-axis/
+V_1/
 ├── package.json                      # pnpm workspace root, Turborepo tasks
 ├── pnpm-workspace.yaml
-├── turbo.json
-├── tsconfig.base.json                # strict:true, ESM, shared path aliases
-├── .env.example                      # every var, documented, no secrets
-├── .github/workflows/ci.yml          # typecheck + lint + test on push
-├── README.md                         # pitch, quickstart, judging map
-├── ARCHITECTURE.md                   # ← this file
-├── BUILD_PLAN.md                     # phases, gates, commands, demo script
+├── tsconfig.json                     # strict, ESM, shared path aliases
 │
-├── packages/
-│   │
+├── backend/
 │   ├── shared/                       # zero-I/O. Depended on by everything.
-│   │   ├── src/
-│   │   │   ├── schemas/
-│   │   │   │   ├── workflow.ts       # WorkflowSpec, WorkflowStep, StepRef
-│   │   │   │   ├── quote.ts          # Quote, QuoteLeg, SignedQuote
-│   │   │   │   ├── receipt.ts        # Receipt, ReceiptLeg, RunStatus
-│   │   │   │   ├── policy.ts         # SpendPolicy, PolicyVerdict, Violation
-│   │   │   │   ├── x402.ts           # Challenge, PaymentPayload, SettleResult
-│   │   │   │   └── events.ts         # SSE event union (RunEvent)
-│   │   │   ├── dag/
-│   │   │   │   ├── resolve.ts        # topological sort + cycle detection
-│   │   │   │   ├── interpolate.ts    # ${steps.a.output.field} resolution
-│   │   │   │   └── resolve.test.ts
-│   │   │   ├── money.ts              # MicroUSDC brand type, parse/format/sum
-│   │   │   ├── constants.ts          # CAIP-2 ids, MAX_GROUP_SIZE=16, TTLs
-│   │   │   ├── errors.ts             # AxisError taxonomy + error codes
-│   │   │   └── index.ts
-│   │   └── package.json
+│   │   └── src/
+│   │       ├── schemas/              # workflow · quote · receipt · policy · events
+│   │       ├── dag/                  # resolve.ts (topo + cycle) · interpolate.ts
+│   │       ├── fixtures/mock-run.ts  # deterministic fake run (built the UI early)
+│   │       ├── money.ts              # MicroUSDC brand type, parse/format/sum
+│   │       ├── constants.ts          # re-exports CAIP-2 ids + USDC ASA from @x402/avm
+│   │       ├── errors.ts             # AxisError taxonomy (+ costedNothing)
+│   │       └── index.ts
 │   │
 │   ├── guard/                        # spend policy + trust. Pure logic.
-│   │   ├── src/
-│   │   │   ├── evaluate.ts           # Quote + Policy + SpendHistory → Verdict
-│   │   │   ├── velocity.ts           # rolling-window spend & call counters
-│   │   │   ├── trust.ts              # provider trust score (static v1)
-│   │   │   ├── evaluate.test.ts      # every rule, pass + fail cases
-│   │   │   └── index.ts
-│   │   └── package.json
+│   │   └── src/  evaluate.ts · trust.ts · evaluate.test.ts · index.ts
 │   │
 │   ├── router/                       # the engine. Node 22 + Hono.
 │   │   ├── src/
-│   │   │   ├── index.ts              # server bootstrap, graceful shutdown
-│   │   │   ├── app.ts                # Hono app, middleware chain, OpenAPI
-│   │   │   ├── routes/
-│   │   │   │   ├── quote.ts          # POST /v1/workflow/quote
-│   │   │   │   ├── execute.ts        # POST /v1/workflow/execute
-│   │   │   │   ├── receipt.ts        # GET  /v1/receipt/:id
-│   │   │   │   ├── policy.ts         # GET/PUT /v1/policy
-│   │   │   │   ├── events.ts         # GET  /v1/runs/:id/events (SSE)
-│   │   │   │   └── health.ts         # GET  /healthz, /readyz
+│   │   │   ├── index.ts              # bootstrap + boot-time reconcile
+│   │   │   ├── app.ts                # the entire Hono app + every route (no routes/ split)
+│   │   │   ├── config.ts             # Zod-validated env, crashes at boot if bad
+│   │   │   ├── bus.ts                # in-process event bus → SSE fan-out
+│   │   │   ├── reconcile.ts          # finish runs a crash left PENDING
 │   │   │   ├── engine/
 │   │   │   │   ├── quote.ts          # probe fan-out, price sum, quote signing
-│   │   │   │   ├── compose.ts        # atomic group builder (N payees)
-│   │   │   │   ├── simulate.ts       # simulateTransactions wrapper + decode
-│   │   │   │   ├── settle.ts         # facilitator verify + submit
-│   │   │   │   ├── execute.ts        # paid retries, DAG order, timeouts
-│   │   │   │   └── compensate.ts     # refund leg for undelivered providers
-│   │   │   ├── chain/
-│   │   │   │   ├── client.ts         # algod/indexer clients, network config
-│   │   │   │   ├── preflight.ts      # ASA opt-in + balance checks
-│   │   │   │   └── facilitator.ts    # facilitator HTTP client
-│   │   │   ├── db/
-│   │   │   │   ├── schema.ts         # Drizzle table definitions
-│   │   │   │   ├── client.ts         # pooled connection
-│   │   │   │   ├── queries.ts        # typed query helpers
-│   │   │   │   └── migrations/       # drizzle-kit output
-│   │   │   ├── workflows/
-│   │   │   │   └── pr-review.ts      # the demo workflow definition
-│   │   │   ├── middleware/
-│   │   │   │   ├── requestId.ts      # correlation id per request
-│   │   │   │   ├── idempotency.ts    # execute-once guarantee
-│   │   │   │   ├── ratelimit.ts      # per-agent request limiter
-│   │   │   │   └── errors.ts         # AxisError → HTTP mapper
-│   │   │   ├── bus.ts                # in-process event bus → SSE fan-out
-│   │   │   └── log.ts                # pino, workflowId-scoped child loggers
+│   │   │   │   ├── policy.ts         # spend-guard evaluation (velocity query)
+│   │   │   │   ├── compose.ts        # atomic group builder + preflight (N payees)
+│   │   │   │   ├── settle.ts         # simulate gate + facilitator settle
+│   │   │   │   ├── execute.ts        # verify → single-use → compose → settle
+│   │   │   │   ├── run.ts            # paid retries in DAG order + on-chain compensation
+│   │   │   │   ├── receipt.ts        # receipts, refunds, usage, projects
+│   │   │   │   ├── agent.ts          # autonomous budgeted agent (server-side)
+│   │   │   │   ├── auth.ts           # JWT signup/login (scrypt + HS256)
+│   │   │   │   └── redteam.ts        # fire the arXiv attacks at our own endpoints
+│   │   │   ├── chain/client.ts       # algod/indexer + agent account from mnemonic
+│   │   │   ├── db/  schema.ts · client.ts · migrations/   # Drizzle + drizzle-kit
+│   │   │   ├── workflows/pr-review.ts# ALL 9 workflow definitions live here
+│   │   │   └── middleware/idempotency.ts · ratelimit.ts
 │   │   ├── drizzle.config.ts
 │   │   └── package.json
 │   │
-│   └── receipts/                     # receipt aggregation + indexer sync
-│       ├── src/
-│       │   ├── build.ts              # runs + legs → Receipt
-│       │   ├── indexer.ts            # confirm txids, fetch round/timestamp
-│       │   └── index.ts
+│   ├── providers/                    # our own x402 endpoints (Cloudflare Workers)
+│   │   ├── _kit/src/                 # shared provider toolkit (NOT a _template)
+│   │   │   ├── x402.ts               # challenge issue + payment verify
+│   │   │   ├── handler.ts            # generic paid pipeline (order = security)
+│   │   │   ├── claims.ts             # single-use claims: memory · KV · Durable Object
+│   │   │   ├── onchain.ts            # confirm a settled txid via the indexer
+│   │   │   ├── llm.ts                # NVIDIA NIM client (raw fetch) + jsonComplete
+│   │   │   └── index.ts
+│   │   ├── diff-explainer/           # POST /diff/explain      $0.03
+│   │   ├── guardrail-checker/        # POST /guardrail/check   $0.02
+│   │   ├── commit-roaster/           # POST /commit/roast      $0.03
+│   │   ├── bug-summarizer/           # POST /bug/summarize     $0.05
+│   │   ├── toolbox/                  # 5 more services on one Worker ($0.02–$0.05)
+│   │   └── _bundle-check/            # Phase-0 Worker bundle-size gate
+│   │
+│   ├── sdk/                          # @axis/pay — zero-dependency client + example.ts
+│   ├── mcp/                          # AXIS as MCP tools (list/quote/pay_and_run)
+│   ├── agent/                        # autonomous agent CLI (src/cli.ts)
+│   └── scripts/                      # setup-accounts · optin-usdc · check-accounts
+│                                     #   · spike-atomic-group · spike-facilitator
+│
+├── frontend/
+│   └── console/                      # Next.js 15 dashboard (App Router)
+│       ├── app/                      # page.tsx (landing) · dashboard/ · agent/
+│       │                             #   attack/ · failure/ · receipts/ · refunds/
+│       │                             #   projects/ · protocol/ · login/ · signup/
+│       ├── components/               # AppFrame · Sidebar · RunView · ProjectPicker
+│       ├── lib/                      # api.ts · state-machine.ts · useRunStream.ts
 │       └── package.json
 │
-├── providers/                        # our own x402 endpoints (Workers)
-│   ├── _template/                    # shared provider scaffold
-│   │   └── src/
-│   │       ├── x402.ts               # challenge issue + payment verify
-│   │       ├── claude.ts             # Anthropic client wrapper
-│   │       └── handler.ts            # generic paid-endpoint handler
-│   ├── diff-explainer/               # POST /diff/explain      $0.03
-│   │   ├── src/index.ts
-│   │   ├── wrangler.toml
-│   │   └── package.json
-│   ├── guardrail-checker/            # POST /guardrail/check   $0.02
-│   ├── commit-roaster/               # POST /commit/roast      $0.03
-│   └── bug-summarizer/               # POST /bug/summarize     $0.05
-│
-├── apps/
-│   └── console/                      # Next.js 15 dashboard
-│       ├── app/
-│       │   ├── layout.tsx
-│       │   ├── page.tsx              # the "Should I merge this PR?" button
-│       │   ├── runs/[id]/page.tsx    # live run view
-│       │   ├── receipts/[id]/page.tsx
-│       │   └── policy/page.tsx       # policy editor
-│       ├── components/
-│       │   ├── WorkflowGraph.tsx     # DAG viz, per-node status
-│       │   ├── ChallengeCard.tsx     # the four 402s
-│       │   ├── GroupPanel.tsx        # group id + txids → AlgoExplorer
-│       │   ├── ReceiptView.tsx       # unified receipt
-│       │   ├── PolicyPanel.tsx       # ceilings + verdict badge
-│       │   └── EventLog.tsx          # raw SSE stream, protocol steps 1–8
-│       ├── lib/
-│       │   ├── api.ts                # typed client (imports shared schemas)
-│       │   └── useRunStream.ts       # EventSource hook
-│       └── package.json
-│
-├── scripts/
-│   ├── spike-atomic-group.ts         # Phase 0 de-risk script
-│   ├── setup-accounts.ts             # generate 4 payees, print addresses
-│   ├── optin-usdc.ts                 # opt every payee into USDC ASA
-│   ├── fund.ts                       # dispenser helper
-│   └── demo.ts                       # headless end-to-end run
+├── extension/                        # Chrome side-panel live monitor (MV3)
 │
 └── docs/
-    ├── PROTOCOL.md                   # wire-level spec of all 4 phases
-    ├── DEPLOYMENT.md                 # step-by-step deploy runbook
-    └── DEMO.md                       # 3-minute presentation script
+    ├── ARCHITECTURE.md               # ← this file (the what + why)
+    ├── BUILD_PLAN.md                 # phases, gates, commands
+    ├── PROTOCOL.md                   # wire-level x402/AVM facts, verified vs the SDK
+    ├── FEATURES.md                   # every feature + the command that proves it
+    ├── DEPLOYED.md                   # live provider URLs
+    └── RUN_LOCAL.md                  # two-terminal local run
 ```
 
 ---
@@ -532,38 +491,42 @@ Error codes: `INVALID_WORKFLOW` · `UNKNOWN_STEP_REF` · `DAG_CYCLE` · `PROVIDE
 {
   "workflow": "pr-review",
   "agentAddress": "ABCD...58CHARS",
-  "inputs": { "repo": "org/repo", "pr": 42 },
-  "constraints": { "maxSpendUSDC": "0.50" }
+  "inputs": { "diff": "- const t=10\n+ const t=60", "commitMessage": "bump timeout" }
 }
 ```
 
-**Response 200**
+> The stored spend policy is always applied. (A client-supplied tighter ceiling is
+> a designed extension point, but this build takes no `constraints` field on the
+> request.)
+
+**Response 200** — a `runId` is minted so the console can stream the probes live.
 
 ```json
 {
+  "runId": "run_9xLm3",
   "quoteId": "qt_7fK2mQ",
   "workflow": "pr-review",
+  "network": "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe",
   "dag": {
-    "order": [["diff", "guardrail", "roast"], ["bugsum"]],
+    "batches": [["diff", "guardrail", "roast"], ["bugsum"]],
     "edges": [{ "from": "diff", "to": "bugsum" }]
   },
   "legs": [
-    { "stepId": "diff",      "provider": "diff-explainer",     "payTo": "AAA...", "priceUSDC": "0.03" },
-    { "stepId": "guardrail", "provider": "guardrail-checker",  "payTo": "BBB...", "priceUSDC": "0.02" },
-    { "stepId": "roast",     "provider": "commit-roaster",     "payTo": "CCC...", "priceUSDC": "0.03" },
-    { "stepId": "bugsum",    "provider": "bug-summarizer",     "payTo": "DDD...", "priceUSDC": "0.05" }
+    { "stepId": "diff",      "provider": "diff-explainer",     "payTo": "AAA...", "priceUSDC": "0.03", "asset": "10458941" },
+    { "stepId": "guardrail", "provider": "guardrail-checker",  "payTo": "BBB...", "priceUSDC": "0.02", "asset": "10458941" },
+    { "stepId": "roast",     "provider": "commit-roaster",     "payTo": "CCC...", "priceUSDC": "0.03", "asset": "10458941" },
+    { "stepId": "bugsum",    "provider": "bug-summarizer",     "payTo": "DDD...", "priceUSDC": "0.05", "asset": "10458941" }
   ],
-  "totalUSDC": "0.13",
+  "subtotalUSDC": "0.13",
   "routingFeeUSDC": "0.01",
-  "grandTotalUSDC": "0.14",
+  "totalUSDC": "0.14",
   "policy": { "verdict": "PASS", "checks": [ /* every rule + headroom */ ] },
-  "network": "algorand:testnet",
   "expiresAt": "2026-08-07T12:02:00Z",
   "signature": "base64..."
 }
 ```
 
-`order` is an array of **parallel batches** — everything in `order[0]` runs concurrently, then `order[1]`, and so on.
+`dag.batches` is an array of **parallel batches** — everything in `batches[0]` runs concurrently, then `batches[1]`, and so on. (`subtotalUSDC` is the providers' total; `totalUSDC` adds the routing fee.)
 
 **No payment occurs. No group is built.**
 
@@ -573,13 +536,19 @@ Error codes: `INVALID_WORKFLOW` · `UNKNOWN_STEP_REF` · `DAG_CYCLE` · `PROVIDE
 
 ### `POST /v1/workflow/execute`
 
-Header: `Idempotency-Key: <client-generated uuid>` (required).
+Header: `Idempotency-Key: <client-generated uuid>` (a repeat replays the stored
+response — no second settlement).
 
-**Request**
+**Request** — **there is no `signedGroup`.** The router custodies the agent wallet
+(`AGENT_MNEMONIC`) and produces the single group signature itself; the client only
+references the quote.
 
 ```json
-{ "quoteId": "qt_7fK2mQ", "signedGroup": "base64-encoded-signed-txns" }
+{ "quoteId": "qt_7fK2mQ", "runId": "run_9xLm3", "projectId": "prj_…", "chaos": "roast" }
 ```
+
+`runId` (reuse the one from quote so the console keeps streaming), `projectId`, and
+`chaos` (a demo flag that forces one leg to fail after payment) are all optional.
 
 **Response 200**
 
@@ -628,7 +597,7 @@ The unified receipt — **the artifact that proves the whole thesis**.
       "payTo": "AAA...",
       "priceUSDC": "0.03",
       "txid": "TX1...",
-      "explorerUrl": "https://testnet.algoexplorer.io/tx/TX1...",
+      "explorerUrl": "https://lora.algokit.io/testnet/transaction/TX1...",
       "status": "DELIVERED",
       "latencyMs": 2140
     }
@@ -643,41 +612,69 @@ The unified receipt — **the artifact that proves the whole thesis**.
 
 ---
 
-### `GET /v1/policy?agentAddress=...` · `PUT /v1/policy`
+### Additional endpoints (as built)
 
-Read and update the calling agent's spend policy. `PUT` body is a partial `SpendPolicy`; unspecified fields keep their current value. Setting `killSwitch: true` immediately rejects all subsequent quotes for that agent.
+There is **no `GET/PUT /v1/policy`** and no generated `/openapi.json` in this build.
+The spend policy is applied internally between quote and compose; its full verdict
+is returned inside the quote and streamed as a `policy.evaluated` SSE event. Policy
+defaults come from env (`MAX_*_MICRO`, `KILL_SWITCH`, …), validated at boot.
+
+The rest of the live surface:
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/workflows` | the 9 workflows an agent can run (id + steps + inputs) |
+| `POST /v1/agent/run` | autonomous agent — `{ goal, budgetUSDC }` → picks a workflow, pays within budget, streams on a `runId` |
+| `POST /v1/redteam/prime` · `POST /v1/redteam/:id` | fire `replay` / `cross-resource` / `cache` at our own live endpoints |
+| `GET /v1/refunds` · `GET /v1/usage` | on-chain refunds; spend totals (optional `?agent=`) |
+| `POST/GET /v1/projects` · `GET /v1/projects/:id` | group runs, per-project spend |
+| `POST /v1/auth/signup` · `POST /v1/auth/login` | JWT accounts (scrypt + HS256, `node:crypto` only) |
+| `GET /v1/runs/latest` | the most recent run id (the extension follows it) |
+| `GET /healthz` · `GET /readyz` | liveness; readiness (every configured provider answers `/health`) |
 
 ---
 
 ### `GET /v1/runs/:id/events` — Server-Sent Events
 
-The live feed the console renders. Every event is `{ type, ts, runId, ...payload }`.
+The live feed the console renders. Every event carries a monotonic `seq` (the
+console detects gaps). The union is defined in `shared/src/schemas/events.ts`.
 
 | `type` | Emitted when | Protocol step shown |
 |---|---|---|
-| `quote.probing` | fan-out started | 1–2 |
-| `quote.challenge` | one 402 received (×4) | 3 |
-| `quote.ready` | DAG resolved, total computed | 4 |
-| `policy.evaluated` | guard verdict | — |
-| `group.composed` | N legs assembled | 5 |
-| `group.simulated` | dry run passed | 6 |
-| `group.signed` | agent signature received | 7 |
-| `group.settled` | confirmed on chain | 8 |
-| `step.started` / `step.completed` / `step.failed` | per provider execution | — |
-| `compensation.issued` | refund leg submitted | — |
-| `run.completed` | terminal state reached | — |
+| `run.started` | run created; nodes + batches known | — |
+| `probe.sent` | unpaid fan-out started | 1 (discover) |
+| `challenge.received` | one 402 received (×N) | 2 (challenge) |
+| `quote.ready` | DAG resolved, total computed | 3 (quote) |
+| `policy.evaluated` | guard verdict (PASS/FAIL + checks) | 4 (policy) |
+| `group.composed` | N legs assembled | 5 (compose) |
+| `group.simulated` | dry run passed/failed | 6 (simulate) |
+| `settle.retry` | a settle attempt is being retried | — |
+| `group.signed` | the single signature applied | 7 (sign) |
+| `group.settled` | confirmed on chain (+ txids) | 8 (settle) |
+| `step.started` / `step.delivered` / `step.failed` / `step.skipped` | per provider execution | — |
+| `node.state` | a node's visual state changed | — |
+| `compensation.issued` | refund leg submitted on-chain | — |
+| `run.completed` / `run.error` | terminal state reached | — |
 
 ---
 
-### `GET /healthz` · `GET /readyz` · `GET /openapi.json`
+### `GET /healthz` · `GET /readyz`
 
-`healthz` = process alive. `readyz` = DB reachable + algod reachable + facilitator reachable. `openapi.json` is generated from the Zod schemas.
+`healthz` = process alive. `readyz` = every configured provider answers its
+`/health` (returns `503` + the `down` list otherwise). No `/openapi.json` is
+generated in this build.
 
 ---
 
 ## 9. Provider Contract
 
-Every provider is an independent Cloudflare Worker on its **own Algorand address**, so the atomic group genuinely spans multiple payees rather than paying ourselves four times.
+**Nine paid x402 endpoints across five Cloudflare Workers.** The four core
+providers each run on their **own Algorand payout address**, so the `pr-review`
+atomic group genuinely spans multiple payees rather than paying ourselves four
+times. The `toolbox` Worker hosts five more services behind one shared address —
+each still its own x402 resource (own price, own payment binding).
+
+**Core — four distinct payees:**
 
 | Endpoint | Price | Returns |
 |---|---|---|
@@ -685,6 +682,16 @@ Every provider is an independent Cloudflare Worker on its **own Algorand address
 | `POST /guardrail/check` | $0.02 | Prompt-injection / jailbreak / policy risk score |
 | `POST /commit/roast` | $0.03 | Commit message critique + rewritten alternatives |
 | `POST /bug/summarize` | $0.05 | Noisy bug report → reproducible steps + severity |
+
+**Toolbox — five services, one Worker:**
+
+| Endpoint | Price | Returns |
+|---|---|---|
+| `POST /code/generate` | $0.05 | Write code for a described task |
+| `POST /debug/fix` | $0.04 | Diagnose an error and propose a fix |
+| `POST /test/write` | $0.04 | Unit tests for a piece of code |
+| `POST /translate` | $0.02 | Translate text to a target language |
+| `POST /summarize` | $0.02 | Summarise a long piece of text |
 
 All settle in **USDC ASA on Algorand Testnet**.
 
@@ -726,7 +733,9 @@ X-PAYMENT: <base64 payment payload>
 { "diff": "..." }
 ```
 
-The provider verifies the payment proof against the facilitator, then calls Claude, then returns `200` with the result and an `X-PAYMENT-RESPONSE` header carrying the settlement reference.
+The provider verifies the payment proof (against the facilitator, or on-chain via
+the indexer for the aggregator flow), then calls the model, then returns `200` with
+the result and an `X-PAYMENT-RESPONSE` header carrying the settlement reference.
 
 **Provider invariants:**
 
@@ -739,53 +748,52 @@ The provider verifies the payment proof against the facilitator, then calls Clau
 
 ## 10. LLM Integration
 
-All four providers call Claude through the official SDK: `@anthropic-ai/sdk`.
-
-**Model: `claude-opus-5`.** These are short generate/classify tasks and Opus 5 handles them at low effort with high quality and strong instruction-following, which matters because two of the four endpoints return structured JSON.
+Every provider calls **NVIDIA NIM**, model **`meta/llama-3.1-8b-instruct`**, through
+a deliberately raw ~40-line `fetch` client (`providers/_kit/src/llm.ts`) — *not* an
+SDK. NIM speaks the OpenAI chat-completions wire format. Reasons: it runs on
+`workerd` with no SDK surprises, keeps the Worker bundle small (293 KB gzipped, see
+PROTOCOL.md §8), is fast, and is near-free at demo scale — right for short
+generate/summarize/classify tasks.
 
 **Standard call shape:**
 
 ```ts
-const response = await client.messages.create({
-  model: "claude-opus-5",
-  max_tokens: 2048,
-  output_config: { effort: "low" },
-  system: PROVIDER_SYSTEM_PROMPT,
-  messages: [{ role: "user", content: userPayload }],
+await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer ${NVIDIA_API_KEY}` },
+  body: JSON.stringify({
+    model: "meta/llama-3.1-8b-instruct",
+    messages: [{ role: "system", content: SYSTEM }, { role: "user", content: userPayload }],
+    max_tokens: 1024,        // per-endpoint (400–700 for the short ones)
+    temperature: 0.2,        // low, for stable structured output
+  }),
 });
 ```
 
-**Parameter reasoning — read this before changing anything:**
+**Parameter reasoning:**
 
-- **`effort: "low"`** — these are scoped, latency-sensitive tasks. Low effort keeps the demo fast and the cost near zero. Effort lives inside `output_config`, not at the top level.
-- **Thinking is left ON (default).** On `claude-opus-5` thinking is on unless you disable it, and disabling it has two documented failure modes: leaked `<thinking>` tags in the visible response, and (in tool-using contexts) tool calls emitted as plain text. Lowering `effort` gets you the latency and cost win without either risk. **Do not add `thinking: { type: "disabled" }`.**
-- **`max_tokens: 2048`** — `max_tokens` caps thinking *plus* response text together. 2048 leaves headroom so a response never truncates mid-sentence in front of a judge. Do not lowball it.
-- **No sampling parameters.** `temperature`, `top_p`, and `top_k` are removed on `claude-opus-5` and return a 400. Steer with the system prompt.
-- **No assistant prefill.** Prefilling the final assistant turn returns a 400. Use structured outputs instead.
+- **`temperature: 0.2`** — low variance keeps the two JSON endpoints parseable and
+  the demo output stable. There is no thinking/effort concept on this model.
+- **`max_tokens`** is set per endpoint (400 for a diff summary, up to 700 for
+  generated code/tests) — enough that a response never truncates mid-sentence.
+- The key is set as a **Worker secret** (`wrangler secret put NVIDIA_API_KEY`), so
+  the router never sees it. The router keeps its *own* key only to let the
+  autonomous agent pick a workflow from a goal.
 
-**Structured output where the shape matters** — `guardrail/check` and `bug/summarize` return JSON, so they use schema-constrained output rather than prompt-and-pray:
+**Structured output where the shape matters** — `guardrail/check` and
+`bug/summarize` must return JSON. NIM's structured-output support varies by model,
+so `_kit`'s `jsonComplete` does **not** trust it: it requests `response_format:
+{ type: "json_object" }`, validates the result against a **Zod** schema, and retries
+**once** with the parse error fed back. A paid endpoint must never return malformed
+output to a caller who has already been charged; if the model fails twice the
+endpoint returns `502` (`PROVIDER_EXECUTION_FAILED`) and the router compensates that
+leg rather than paying for garbage.
 
-```ts
-output_config: {
-  effort: "low",
-  format: {
-    type: "json_schema",
-    schema: {
-      type: "object",
-      properties: {
-        risk: { type: "number" },
-        flags: { type: "array", items: { type: "string" } },
-      },
-      required: ["risk", "flags"],
-      additionalProperties: false,
-    },
-  },
-}
-```
+**Cost control:** the shared handler caps request size (`MAX_INPUT_CHARS = 24_000`)
+and returns `400` on oversized payloads rather than burning tokens — a hard reject,
+never a silent truncation.
 
-**Cost control:** each provider caps input length (truncate-with-notice, never silent truncation) and returns `400` on oversized payloads rather than burning tokens.
-
-**Latency budget:** every provider must respond inside `maxTimeoutSeconds` (60). Measured p50 target: under 4 s.
+**Latency budget:** every provider must respond inside `maxTimeoutSeconds` (60).
 
 ---
 
@@ -793,7 +801,7 @@ output_config: {
 
 Pure logic. No chain calls, no I/O beyond a single velocity query. Runs **between quote and compose**, and a `FAIL` verdict means nothing is ever signed.
 
-### The five rules
+### The six rules
 
 | Rule | Check | Error on violation |
 |---|---|---|
@@ -804,7 +812,9 @@ Pure logic. No chain calls, no I/O beyond a single velocity query. Runs **betwee
 | **Velocity — calls** | `callsLastHour + quote.legs.length <= policy.maxHourlyCalls` | `POLICY_VIOLATION` / `hourlyCallLimit` |
 | **Provider trust** | every `leg.provider.trustScore >= policy.minProviderTrust` | `POLICY_VIOLATION` / `providerTrust` |
 
-The client's own `constraints.maxSpendUSDC` is applied as an **additional, tighter** ceiling — it can never loosen the stored policy.
+The guard supports a client-supplied tighter ceiling (`clientMaxMicro`) that can
+only *lower* the stored one, never raise it — the mechanism is built and unit
+tested, though the HTTP quote route does not currently expose a `constraints` field.
 
 ### Verdict shape
 
@@ -830,7 +840,7 @@ Every check is returned whether it passed or not — the console renders the hea
 
 ## 12. DAG Resolver
 
-Lives in `packages/shared/src/dag/`. Pure functions, fully unit tested, zero I/O.
+Lives in `backend/shared/src/dag/`. Pure functions, fully unit tested, zero I/O.
 
 ### Workflow spec shape
 
@@ -948,7 +958,7 @@ Every one of these is implemented. None is a stub.
 | Concern | Control |
 |---|---|
 | **Agent mnemonic** | Lives only in the router process environment. Never in the console, never in a Worker, never logged, never in a response. |
-| **Anthropic API key** | Lives only in Worker secrets (`wrangler secret put`). The router never sees it. |
+| **NVIDIA API key** | Lives in each provider's Worker secrets (`wrangler secret put NVIDIA_API_KEY`). The router's own copy is used only for the autonomous agent's workflow choice. |
 | **Quote tampering** | Quotes are signed by the router over a canonical serialization; execute verifies before composing. |
 | **Quote replay** | Single-use — `status` transitions `OPEN → CONSUMED` atomically on execute. |
 | **Double settlement** | `Idempotency-Key` required on execute; stored response replayed on repeat. |
@@ -1018,8 +1028,14 @@ PROVIDER_TIMEOUT_MS=60000
 PROVIDER_MAX_RETRIES=2
 ROUTING_FEE_MICRO=10000                  # $0.01 per run
 
+# ── Router also reads (for the autonomous agent + auth) ──
+DATABASE_URL=postgresql://...neon.tech/axis?sslmode=require
+JWT_SECRET=...                           # console session JWTs (off money path)
+NVIDIA_API_KEY=...                       # agent workflow choice
+PROVIDER_TOOLBOX_URL=https://axis-toolbox.axis-pay.workers.dev   # optional
+
 # ── Worker secrets (set via `wrangler secret put`, not here) ──
-# ANTHROPIC_API_KEY
+# NVIDIA_API_KEY   (each provider Worker — powers the LLM behind the endpoint)
 ```
 
 Config is validated at boot by a Zod schema. **A missing or malformed variable crashes the process on startup with a readable message** — never a mysterious `undefined` three layers deep at demo time.
