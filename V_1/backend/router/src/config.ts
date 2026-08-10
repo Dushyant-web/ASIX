@@ -45,7 +45,11 @@ const schema = z.object({
   // fail to quote if it's unset, without blocking the core providers.
   PROVIDER_TOOLBOX_URL: z.string().url().optional(),
 
-  AGENT_MNEMONIC: z.string().min(1),
+  /** 25 words. Hosting dashboards wrap long values in a textarea and happily
+   *  store the newline, which makes the mnemonic fail to decode with an error
+   *  that says nothing about whitespace. Collapse any run of whitespace to a
+   *  single space so a pasted-with-newlines value still works. */
+  AGENT_MNEMONIC: z.string().min(1).transform((s) => s.trim().replace(/\s+/g, " ")),
   QUOTE_SIGNING_KEY: z.string().min(32, "use at least 32 chars of entropy"),
 
   // Signs console session JWTs. Not on the money path; a dev default is fine
